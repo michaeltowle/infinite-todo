@@ -96,10 +96,13 @@ scratchpad · todo-node · todo-line-item · `checkbox` · `keyboardText` ·
 `parentID` (parent link) · `element:` (storage-key prefix) · `mutation` (edit
 message) · `op` (mutation kind) with values `insert` / `delete` / `replace` /
 `move` · `src/tree.js` (DO class file) · `tree` & `mutations` (API path
-segments) · `treeRevision` (monotonic write counter)
+segments) · `treeRevision` (monotonic write counter) · `optparse` (line parser
+— currently a stub) · `root` (the single DO instance name) · UI copy:
+`scratchpad` (tab title), `To-do` (input placeholder)
 
-Everything else needs approval — including helper function names and any
-node-type enum.
+Everything else structural or user-facing needs approval; internal helper
+functions and locals are named freely (rule 1). Still pending: the node-type
+enum, for when real node types arrive.
 
 ## Repo notes
 - Cloudflare Worker; config in `wrangler.toml`. Entry is `src/index.js`
