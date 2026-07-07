@@ -13,9 +13,12 @@ workers_dev = false
 #   { pattern = "x.michaeltowle.io", custom_domain = true }
 # ]
 
-# Milestone #3: D1 binding (create with `wrangler d1 create infinite-todo`,
-# paste the returned database_id here, then uncomment).
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "infinite-todo"
-# database_id = "..."
+# The scratchpad's state lives in a Durable Object, not D1. TodoTree holds the
+# node tree in memory and persists one storage entry per node (`element:<id>`).
+[[durable_objects.bindings]]
+name = "TREE"
+class_name = "TodoTree"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TodoTree"]
