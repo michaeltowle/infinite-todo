@@ -1,0 +1,21 @@
+name = "infinite-todo"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+# No public *.workers.dev URL — the only way in should be through the custom
+# domain, so Cloudflare Access (milestone #2) can't be bypassed.
+workers_dev = false
+
+# Milestone #1: attach the private subdomain. Uncomment once x.michaeltowle.io
+# has a (proxied) DNS record on the zone, then `wrangler deploy` from the
+# machine that's `wrangler login`ed. Requires no code — Cloudflare provisions it.
+# routes = [
+#   { pattern = "x.michaeltowle.io", custom_domain = true }
+# ]
+
+# Milestone #3: D1 binding (create with `wrangler d1 create infinite-todo`,
+# paste the returned database_id here, then uncomment).
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "infinite-todo"
+# database_id = "..."

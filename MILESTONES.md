@@ -1,15 +1,11 @@
-[ ] Clean, beautiful text input box on homepage
-[ ] Auto-select so user can start typing right away
-[ ] Infinitely scrollable
-[ ] No scroll bar
+1. Get hosted on CF
+   test: whether we get a 404 at michaeltowle.io/todo.html
 
-[ ] Todo creation
-[ ] Every line is a todo
-[ ] Clickable checkbox just like Notion
-[ ] Newline has empty checkbox and empty text just like Notion
-[ ] Tab moves the line's hierarchy level, possibly making it a sibling instead of a child or vice versa. This is to be reflected in the data store; children travel with the parent.
-[ ] On creation (enter key for newline), todo is saved
-[ ] text must be non-empty
-[ ] datetime for created_at
-[ ] checkbox value 0 for unchecked
-[ ] When all children are checked, the parent becomes checked. Until then the user can click the parent, but no change will occur.
+2. Lock down michaeltowle.io for anyone but me
+   whitelisted device: log in once per month
+   other device: login button triggers CF email with OTP
+   robots and others should see login button always
+   but won't they just click it all the time, being robots? ig that's why we need an email field, so the OTP email only triggers if my email is entered
+
+3. Enable edits to todos.html which persist across devices and sessions
+   many paths here. not a given that we choose D1.
