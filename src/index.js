@@ -41,6 +41,7 @@ html,body{margin:0;padding:0;background:#f1ebdf;scrollbar-width:none}
 html::-webkit-scrollbar,body::-webkit-scrollbar{display:none;width:0;height:0}
 .scroll{min-height:100vh;width:100%;display:flex;justify-content:center;background:#f1ebdf}
 .page{width:1200px;max-width:100%;background:#faf5ea;border-left:1px solid rgba(120,90,40,.11);border-right:1px solid rgba(120,90,40,.11);padding:92px 120px 320px;box-sizing:border-box}
+@media (max-width:600px){.page{padding:32px 16px 320px}}
 .row{display:flex;align-items:flex-start;gap:12px;padding:3px 0}
 .cb{flex:none;width:18px;height:18px;border-radius:4px;border:1.5px solid #cbb894;background:transparent;margin-top:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;color:#fff;font-size:12px;line-height:1}
 .cb.done{border-color:#9c7a3c;background:#9c7a3c}
