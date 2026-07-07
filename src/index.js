@@ -388,7 +388,13 @@ function clientMain() {
   function onArrow(dir, line, input) {
     const i = currentLines.findIndex((l) => l.node.id === line.node.id);
     const j = dir === "up" ? i - 1 : i + 1;
-    if (j < 0 || j >= currentLines.length) return;
+    if (j < 0 || j >= currentLines.length) {
+      // No line in that direction: snap the caret to the far edge of this line
+      // (ArrowDown off the last line → end; ArrowUp off the first → start).
+      const col = dir === "down" ? input.value.length : 0;
+      input.setSelectionRange(col, col);
+      return;
+    }
     moveCaret(currentLines[i], currentLines[j], input.selectionStart);
   }
 

@@ -6,12 +6,13 @@ compatibility_date = "2026-01-01"
 # domain, so Cloudflare Access (milestone #2) can't be bypassed.
 workers_dev = false
 
-# Milestone #1: attach the private subdomain. Uncomment once x.michaeltowle.io
-# has a (proxied) DNS record on the zone, then `wrangler deploy` from the
-# machine that's `wrangler login`ed. Requires no code — Cloudflare provisions it.
-# routes = [
-#   { pattern = "x.michaeltowle.io", custom_domain = true }
-# ]
+# Custom Domain: on deploy, Cloudflare provisions the proxied DNS record + TLS
+# cert for x.michaeltowle.io itself (the michaeltowle.io zone must be on the
+# account; there must be no pre-existing record for this exact hostname). With
+# workers_dev = false, this domain is the only way in.
+routes = [
+  { pattern = "x.michaeltowle.io", custom_domain = true }
+]
 
 # The scratchpad's state lives in a Durable Object, not D1. TodoTree holds the
 # node tree in memory and persists one storage entry per node (`element:<id>`).
