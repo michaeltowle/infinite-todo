@@ -5,22 +5,22 @@
 // Object, which owns all state. GET /scratchpad serves the editor page — the
 // client (clientMain, below) is serialized into the page via toString().
 
-export { TodoTree } from "./tree.js";
+export { TodoTree } from './tree.js';
 
 // Imported as text (see the Text rule in wrangler.toml) and inlined into the
 // page head as a data-URI favicon — no extra route, so routing stays 404-only.
-import iconSvg from "./scratchpad-pencil-icon.svg";
+import iconSvg from './scratchpad-pencil-icon.svg';
 
 // Build-time values (deploy time; or latest src edit + last commit for dev),
 // written by scripts/generate-build-timestamp.mjs. Rendered into #deploy-stamp.
-import { buildStamp } from "./deploy-stamp.js";
+import { buildStamp } from './deploy-stamp.js';
 
 // Personality quotes ({ quoteText, quoteAuthor } POJOs). Bundled at build time
 // and inlined into the page as QUOTES; used to seed a fresh todo when the
 // scratchpad empties out.
-import quotes from "../personality/quotes.json";
+import quotes from '../personality/quotes.json';
 
-const API_PATHS = new Set(["/scratchpad/tree", "/scratchpad/mutations"]);
+const API_PATHS = new Set(['/scratchpad/tree', '/scratchpad/mutations']);
 
 export default {
   async fetch(request, env) {
@@ -30,16 +30,16 @@ export default {
     if (API_PATHS.has(pathname)) {
       return treeStub(env).fetch(request);
     }
-    if (pathname === "/scratchpad") {
+    if (pathname === '/scratchpad') {
       return page();
     }
-    return new Response("not found", { status: 404 });
+    return new Response('not found', { status: 404 });
   },
 };
 
 // The single global TodoTree instance. One user, one document → one DO.
 function treeStub(env) {
-  return env.TREE.get(env.TREE.idFromName("root"));
+  return env.TREE.get(env.TREE.idFromName('root'));
 }
 
 function page() {
@@ -67,9 +67,9 @@ html::-webkit-scrollbar,body::-webkit-scrollbar{display:none;width:0;height:0}
 input[data-id]{flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:16px;line-height:1.7;color:#43392a;padding:0}
 input[data-done="1"]{text-decoration:line-through;opacity:.5}
 input::placeholder{color:#bcad90}
-.pill-container{position:fixed;left:35px;width:calc((100vw - var(--page-w)) / 2 - 70px);box-sizing:border-box;padding:12px;background:#faf5ea;border:1px solid rgba(120,90,40,.11);border-radius:8px;z-index:10;display:flex;flex-direction:column;gap:6px;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;line-height:1.5;color:#333}
-#dev-helpers{top:35px}
-#deploy-stamp{bottom:35px}
+.pill-container{position:fixed;left:5px;width:calc((100vw - var(--page-w)) / 2 - 10px);box-sizing:border-box;padding:12px;background:#faf5ea;border:1px solid rgba(120,90,40,.11);border-radius:8px;z-index:10;display:flex;flex-direction:column;gap:6px;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;line-height:1.5;color:#333}
+#dev-helpers{top:5px}
+#deploy-stamp{bottom:5px}
 #copy-onpage-todos-as-json{display:contents}
 .pill{display:flex;flex-wrap:wrap;gap:5px;align-items:baseline;background:transparent;border-radius:3px;padding:4px 7px}
 .button-pill{border:none;margin:0;font:inherit;text-align:left;cursor:pointer;color:inherit;transition:background .12s}
@@ -105,7 +105,7 @@ var QUOTES = ${JSON.stringify(quotes)};
 </body>
 </html>`;
   return new Response(html, {
-    headers: { "content-type": "text/html; charset=utf-8" },
+    headers: { 'content-type': 'text/html; charset=utf-8' },
   });
 }
 
@@ -120,8 +120,8 @@ function clientMain() {
   const FONT = "16px -apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif";
   const DEBOUNCE_MS = 400;
 
-  const list = document.getElementById("todo-scratchpad");
-  const scroll = document.getElementById("scroll");
+  const list = document.getElementById('todo-scratchpad');
+  const scroll = document.getElementById('scroll');
 
   // ── Data layer: client mirror of the DO ──
   let nodesById = new Map();
@@ -131,7 +131,7 @@ function clientMain() {
   const editTimers = new Map(); // id → debounce handle for typing
 
   function loadTree() {
-    return fetch("/scratchpad/tree")
+    return fetch('/scratchpad/tree')
       .then((r) => r.json())
       .then((data) => {
         treeRevision = data.treeRevision || 0;
@@ -142,14 +142,15 @@ function clientMain() {
   }
 
   function postMutations(batch) {
-    fetch("/scratchpad/mutations", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
+    fetch('/scratchpad/mutations', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify(batch),
     })
       .then((r) => r.json())
       .then((d) => {
-        if (d && typeof d.treeRevision === "number") treeRevision = d.treeRevision;
+        if (d && typeof d.treeRevision === 'number')
+          treeRevision = d.treeRevision;
       })
       .catch(() => {});
   }
@@ -161,23 +162,23 @@ function clientMain() {
   }
   function applyLocal(m) {
     const key = m.id;
-    if (m.op === "insert") {
+    if (m.op === 'insert') {
       nodesById.set(key, {
         id: m.id,
         parentID: m.parentID != null ? m.parentID : null,
         position: m.position,
         checkbox: m.checkbox || false,
-        keyboardText: m.keyboardText || "",
+        keyboardText: m.keyboardText || '',
       });
-    } else if (m.op === "replace" || m.op === "move") {
+    } else if (m.op === 'replace' || m.op === 'move') {
       const cur = nodesById.get(key);
       if (!cur) return;
       const next = Object.assign({}, cur);
-      for (const f of ["checkbox", "keyboardText", "parentID", "position"]) {
+      for (const f of ['checkbox', 'keyboardText', 'parentID', 'position']) {
         if (f in m) next[f] = m[f];
       }
       nodesById.set(key, next);
-    } else if (m.op === "delete") {
+    } else if (m.op === 'delete') {
       deleteLocalSubtree(m.id);
     }
   }
@@ -263,24 +264,24 @@ function clientMain() {
   // ── Render ──
   function render() {
     currentLines = walk();
-    list.textContent = "";
+    list.textContent = '';
     const frag = document.createDocumentFragment();
     for (const line of currentLines) {
       const n = line.node;
-      const row = document.createElement("div");
-      row.className = "row";
-      row.style.marginLeft = line.depth * INDENT + "px";
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.style.marginLeft = line.depth * INDENT + 'px';
 
-      const btn = document.createElement("button");
-      btn.className = n.checkbox ? "cb done" : "cb";
+      const btn = document.createElement('button');
+      btn.className = n.checkbox ? 'cb done' : 'cb';
       btn.dataset.id = n.id;
-      btn.textContent = n.checkbox ? "✓" : "";
+      btn.textContent = n.checkbox ? '✓' : '';
 
-      const input = document.createElement("input");
+      const input = document.createElement('input');
       input.dataset.id = n.id;
-      input.dataset.done = n.checkbox ? "1" : "0";
-      input.value = n.keyboardText || "";
-      input.placeholder = "To-do";
+      input.dataset.done = n.checkbox ? '1' : '0';
+      input.value = n.keyboardText || '';
+      input.placeholder = 'To-do';
 
       row.appendChild(btn);
       row.appendChild(input);
@@ -306,8 +307,9 @@ function clientMain() {
     } catch (_) {}
   }
   function measureCtx() {
-    const c = measureCtx._c || (measureCtx._c = document.createElement("canvas"));
-    const ctx = c.getContext("2d");
+    const c =
+      measureCtx._c || (measureCtx._c = document.createElement('canvas'));
+    const ctx = c.getContext('2d');
     ctx.font = FONT;
     return ctx;
   }
@@ -315,8 +317,8 @@ function clientMain() {
   // differing indent (canvas text metrics). Ported from the mock.
   function moveCaret(from, to, col) {
     const ctx = measureCtx();
-    const fromText = nodesById.get(from.node.id).keyboardText || "";
-    const toText = nodesById.get(to.node.id).keyboardText || "";
+    const fromText = nodesById.get(from.node.id).keyboardText || '';
+    const toText = nodesById.get(to.node.id).keyboardText || '';
     const srcW = ctx.measureText(fromText.slice(0, col)).width;
     const targetW = srcW + (from.depth - to.depth) * INDENT;
     let best = 0;
@@ -331,8 +333,8 @@ function clientMain() {
     focusLine(to.node.id, best);
   }
   function blankFocus(e) {
-    if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
-    const inputs = list.querySelectorAll("input[data-id]");
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+    const inputs = list.querySelectorAll('input[data-id]');
     const last = inputs[inputs.length - 1];
     if (last) {
       e.preventDefault();
@@ -345,7 +347,7 @@ function clientMain() {
   // Real optparse (type detection from input + opts + 2nd-order effects) lands
   // later. For now every line is a todo-line-item and this hook does nothing.
   function optparse(text) {
-    return { type: "todo-line-item" };
+    return { type: 'todo-line-item' };
   }
 
   // ── Command layer: keystroke → tree mutation(s) + cursor target ──
@@ -356,13 +358,17 @@ function clientMain() {
   function onInput(node, input) {
     const val = input.value;
     const cur = nodesById.get(node.id);
-    if (cur) nodesById.set(node.id, Object.assign({}, cur, { keyboardText: val }));
+    if (cur)
+      nodesById.set(node.id, Object.assign({}, cur, { keyboardText: val }));
     clearTimeout(editTimers.get(node.id));
     editTimers.set(
       node.id,
       setTimeout(() => {
         const n = nodesById.get(node.id);
-        if (n) postMutations([{ op: "replace", id: node.id, keyboardText: n.keyboardText }]);
+        if (n)
+          postMutations([
+            { op: 'replace', id: node.id, keyboardText: n.keyboardText },
+          ]);
         editTimers.delete(node.id);
       }, DEBOUNCE_MS),
     );
@@ -374,7 +380,7 @@ function clientMain() {
     const n = nodesById.get(id);
     if (!n) return;
     const val = !n.checkbox;
-    commit([{ op: "replace", id: id, checkbox: val }]);
+    commit([{ op: 'replace', id: id, checkbox: val }]);
     // Checking the last open box completes the whole top-level tree, which then
     // drops out of the view (see walk()) — re-render so it disappears. Any other
     // toggle updates the one checkbox in place, leaving the caret untouched.
@@ -384,35 +390,60 @@ function clientMain() {
       render();
       return;
     }
-    btn.className = val ? "cb done" : "cb";
-    btn.textContent = val ? "✓" : "";
+    btn.className = val ? 'cb done' : 'cb';
+    btn.textContent = val ? '✓' : '';
     const input = list.querySelector('input[data-id="' + id + '"]');
-    if (input) input.dataset.done = val ? "1" : "0";
+    if (input) input.dataset.done = val ? '1' : '0';
   }
 
   function onEnter(line, input) {
     const node = line.node;
     const col = input.selectionStart;
     const nid = crypto.randomUUID();
-    if (col === 0 && input.value !== "") {
+    if (col === 0 && input.value !== '') {
       // Caret at start of a non-empty line: new empty line ABOVE (prev sibling).
       const sibs = siblingsOf(node);
       const idx = sibs.findIndex((s) => s.id === node.id);
       const lo = idx > 0 ? sibs[idx - 1].position : null;
       commit([
-        { op: "insert", id: nid, parentID: node.parentID != null ? node.parentID : null, position: between(lo, node.position), checkbox: false, keyboardText: "" },
+        {
+          op: 'insert',
+          id: nid,
+          parentID: node.parentID != null ? node.parentID : null,
+          position: between(lo, node.position),
+          checkbox: false,
+          keyboardText: '',
+        },
       ]);
       pending = { id: node.id, col: 0 }; // caret stays on current line
     } else {
       // New empty line BELOW: first child if the node has children, else next sibling.
       const kids = childrenOf(node.id);
       if (kids.length) {
-        commit([{ op: "insert", id: nid, parentID: node.id, position: between(null, kids[0].position), checkbox: false, keyboardText: "" }]);
+        commit([
+          {
+            op: 'insert',
+            id: nid,
+            parentID: node.id,
+            position: between(null, kids[0].position),
+            checkbox: false,
+            keyboardText: '',
+          },
+        ]);
       } else {
         const sibs = siblingsOf(node);
         const idx = sibs.findIndex((s) => s.id === node.id);
         const hi = idx + 1 < sibs.length ? sibs[idx + 1].position : null;
-        commit([{ op: "insert", id: nid, parentID: node.parentID != null ? node.parentID : null, position: between(node.position, hi), checkbox: false, keyboardText: "" }]);
+        commit([
+          {
+            op: 'insert',
+            id: nid,
+            parentID: node.parentID != null ? node.parentID : null,
+            position: between(node.position, hi),
+            checkbox: false,
+            keyboardText: '',
+          },
+        ]);
       }
       pending = { id: nid, col: 0 };
     }
@@ -420,14 +451,14 @@ function clientMain() {
   }
 
   function onBackspaceEmpty(line, input) {
-    if (input.value !== "") return false;
+    if (input.value !== '') return false;
     if (nodesById.size <= 1) return false;
     const i = currentLines.findIndex((l) => l.node.id === line.node.id);
     if (i <= 0) return false; // don't delete the first line
     if (childrenOf(line.node.id).length) return false; // don't delete a parent
     const prev = currentLines[i - 1];
-    commit([{ op: "delete", id: line.node.id }]);
-    const prevText = nodesById.get(prev.node.id).keyboardText || "";
+    commit([{ op: 'delete', id: line.node.id }]);
+    const prevText = nodesById.get(prev.node.id).keyboardText || '';
     pending = { id: prev.node.id, col: prevText.length };
     render();
     return true;
@@ -441,7 +472,14 @@ function clientMain() {
     const newParent = sibs[idx - 1];
     const kids = childrenOf(newParent.id);
     const lastPos = kids.length ? kids[kids.length - 1].position : null;
-    commit([{ op: "move", id: node.id, parentID: newParent.id, position: between(lastPos, null) }]);
+    commit([
+      {
+        op: 'move',
+        id: node.id,
+        parentID: newParent.id,
+        position: between(lastPos, null),
+      },
+    ]);
     pending = { id: node.id, col: col };
     render();
   }
@@ -454,18 +492,25 @@ function clientMain() {
     const gsibs = siblingsOf(parent);
     const pidx = gsibs.findIndex((s) => s.id === parent.id);
     const hi = pidx + 1 < gsibs.length ? gsibs[pidx + 1].position : null;
-    commit([{ op: "move", id: node.id, parentID: grandID, position: between(parent.position, hi) }]);
+    commit([
+      {
+        op: 'move',
+        id: node.id,
+        parentID: grandID,
+        position: between(parent.position, hi),
+      },
+    ]);
     pending = { id: node.id, col: col };
     render();
   }
 
   function onArrow(dir, line, input) {
     const i = currentLines.findIndex((l) => l.node.id === line.node.id);
-    const j = dir === "up" ? i - 1 : i + 1;
+    const j = dir === 'up' ? i - 1 : i + 1;
     if (j < 0 || j >= currentLines.length) {
       // No line in that direction: snap the caret to the far edge of this line
       // (ArrowDown off the last line → end; ArrowUp off the first → start).
-      const col = dir === "down" ? input.value.length : 0;
+      const col = dir === 'down' ? input.value.length : 0;
       input.setSelectionRange(col, col);
       return;
     }
@@ -473,40 +518,40 @@ function clientMain() {
   }
 
   // ── Event wiring (delegated, so re-renders don't re-attach) ──
-  list.addEventListener("input", (e) => {
+  list.addEventListener('input', (e) => {
     const t = e.target;
-    if (t.dataset && t.dataset.id && t.tagName === "INPUT") {
+    if (t.dataset && t.dataset.id && t.tagName === 'INPUT') {
       const line = lineOf(t.dataset.id);
       if (line) onInput(line.node, t);
     }
   });
-  list.addEventListener("keydown", (e) => {
+  list.addEventListener('keydown', (e) => {
     const t = e.target;
-    if (!(t.dataset && t.dataset.id && t.tagName === "INPUT")) return;
+    if (!(t.dataset && t.dataset.id && t.tagName === 'INPUT')) return;
     const line = lineOf(t.dataset.id);
     if (!line) return;
-    if (e.key === "Enter") {
+    if (e.key === 'Enter') {
       e.preventDefault();
       onEnter(line, t);
-    } else if (e.key === "Backspace" && t.value === "") {
+    } else if (e.key === 'Backspace' && t.value === '') {
       if (onBackspaceEmpty(line, t)) e.preventDefault();
-    } else if (e.key === "ArrowUp") {
+    } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      onArrow("up", line, t);
-    } else if (e.key === "ArrowDown") {
+      onArrow('up', line, t);
+    } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      onArrow("down", line, t);
-    } else if (e.key === "Tab") {
+      onArrow('down', line, t);
+    } else if (e.key === 'Tab') {
       e.preventDefault();
       if (e.shiftKey) onOutdent(line, t.selectionStart);
       else onIndent(line, t.selectionStart);
     }
   });
-  list.addEventListener("click", (e) => {
-    const btn = e.target.closest ? e.target.closest("button[data-id]") : null;
+  list.addEventListener('click', (e) => {
+    const btn = e.target.closest ? e.target.closest('button[data-id]') : null;
     if (btn) onToggle(btn);
   });
-  scroll.addEventListener("mousedown", blankFocus);
+  scroll.addEventListener('mousedown', blankFocus);
 
   // ── Dev helper: copy the on-page todos as JSON (non-mobile pill) ──
   // Both halves cover exactly the nodes visible on the page — completed trees
@@ -535,32 +580,55 @@ function clientMain() {
   // hostname (the dev-server proxy rewrites the server-side one). BUILD_STAMP
   // is inlined into the page. ──
   (function renderDeployStamp() {
-    const box = document.getElementById("deploy-stamp");
+    const box = document.getElementById('deploy-stamp');
     if (!box) return;
     const s = BUILD_STAMP;
     // Format "2026-07-08" + "09:52:36" → "9:52am on Jul 8"
     function formatStampTime(date, time) {
-      const [y, m, d] = date.split("-");
-      const [h, min] = time.split(":");
+      const [y, m, d] = date.split('-');
+      const [h, min] = time.split(':');
       const hNum = parseInt(h, 10);
-      const ampm = hNum < 12 ? "am" : "pm";
+      const ampm = hNum < 12 ? 'am' : 'pm';
       const h12 = hNum === 0 ? 12 : hNum > 12 ? hNum - 12 : hNum;
-      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
       const mName = months[parseInt(m, 10) - 1];
       const dNum = parseInt(d, 10);
-      return h12 + ":" + min + ampm + " on " + mName + " " + dNum;
+      return h12 + ':' + min + ampm + ' on ' + mName + ' ' + dNum;
     }
     const branchPill =
-      '<div class="pill info-pill"><span class="pill-text-primary">on branch</span> <span class="pill-text-secondary">#' + s.branch + '</span></div>';
-    if (window.location.hostname === "localhost") {
+      '<div class="pill info-pill"><span class="pill-text-primary">on branch</span> <span class="pill-text-secondary">#' +
+      s.branch +
+      '</span></div>';
+    if (window.location.hostname === 'localhost') {
+      const pageEditTime = formatStampTime(s.pageEdit.date, s.pageEdit.time);
+      const commitTime = formatStampTime(s.commit.date, s.commit.time);
       box.innerHTML =
-        '<div class="pill info-pill"><span class="pill-text-primary">page edit</span> <span class="pill-text-secondary">' + s.pageEdit.time + '</span></div>' +
-        '<div class="pill info-pill"><span class="pill-text-primary">commit</span> <span class="pill-text-secondary">' + s.commit.time + '</span></div>' +
+        '<div class="pill info-pill"><span class="pill-text-primary">page edit</span> <span class="pill-text-secondary">' +
+        pageEditTime +
+        '</span></div>' +
+        '<div class="pill info-pill"><span class="pill-text-primary">commit</span> <span class="pill-text-secondary">' +
+        commitTime +
+        '</span></div>' +
         branchPill;
     } else {
       const deployTime = formatStampTime(s.deploy.date, s.deploy.time);
       box.innerHTML =
-        '<div class="pill info-pill"><span class="pill-text-primary">deployed</span> <span class="pill-text-secondary">' + deployTime + '</span></div>' +
+        '<div class="pill info-pill"><span class="pill-text-primary">deployed</span> <span class="pill-text-secondary">' +
+        deployTime +
+        '</span></div>' +
         branchPill;
     }
   })();
@@ -568,14 +636,16 @@ function clientMain() {
   // Tab title mirrors the deploy stamp's hostname check: live is "Scratchpad",
   // localhost is tagged so the two tabs are distinguishable.
   document.title =
-    window.location.hostname === "localhost" ? "Scratchpad — localhost" : "Scratchpad";
+    window.location.hostname === 'localhost'
+      ? 'Scratchpad — localhost'
+      : 'Scratchpad';
 
-  const devPill = document.getElementById("copy-onpage-todos-as-json");
+  const devPill = document.getElementById('copy-onpage-todos-as-json');
   if (devPill) {
-    devPill.addEventListener("click", (e) => {
-      const half = e.target.closest("[data-shape]");
+    devPill.addEventListener('click', (e) => {
+      const half = e.target.closest('[data-shape]');
       if (!half) return;
-      const data = half.dataset.shape === "nested" ? nestedTree() : rawNodes();
+      const data = half.dataset.shape === 'nested' ? nestedTree() : rawNodes();
       const text = JSON.stringify(data, null, 2);
       if (navigator.clipboard) navigator.clipboard.writeText(text);
     });
@@ -586,7 +656,7 @@ function clientMain() {
   // matches the approved sample: "<quoteText>" -- <quoteAuthor>.
   function quoteLine() {
     const q = QUOTES[Math.floor(Math.random() * QUOTES.length)];
-    return q ? '"' + q.quoteText + '" -- ' + q.quoteAuthor : "";
+    return q ? '"' + q.quoteText + '" -- ' + q.quoteAuthor : '';
   }
   // When nothing is visible (fresh scratchpad, or every tree checked off and
   // hidden), drop in a new todo seeded from a quote. Caller re-renders.
@@ -594,14 +664,23 @@ function clientMain() {
     if (walk().length > 0) return;
     const roots = childrenOf(null);
     const lastPos = roots.length ? roots[roots.length - 1].position : null;
-    commit([{ op: "insert", id: crypto.randomUUID(), parentID: null, position: between(lastPos, null), checkbox: false, keyboardText: quoteLine() }]);
+    commit([
+      {
+        op: 'insert',
+        id: crypto.randomUUID(),
+        parentID: null,
+        position: between(lastPos, null),
+        checkbox: false,
+        keyboardText: quoteLine(),
+      },
+    ]);
   }
 
   // ── Boot ──
   loadTree().then(() => {
     seedIfEmpty();
     render();
-    const inputs = list.querySelectorAll("input[data-id]");
+    const inputs = list.querySelectorAll('input[data-id]');
     const last = inputs[inputs.length - 1];
     if (last) last.focus();
   });
