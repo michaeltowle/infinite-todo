@@ -54,6 +54,7 @@ html::-webkit-scrollbar,body::-webkit-scrollbar{display:none;width:0;height:0}
 .outer-page{flex:1 1 0;min-width:0}
 @media (max-width:1279px){.outer-page{display:none}}
 #inner-page{width:var(--page-w);max-width:100%;background:#faf5ea;border-left:1px solid rgba(120,90,40,.11);border-right:1px solid rgba(120,90,40,.11);padding:92px 120px 320px;box-sizing:border-box}
+@media (max-width:1400px){:root{--page-w:900px}}
 @media (max-width:600px){#inner-page{padding:32px 16px 320px}}
 .row{display:flex;align-items:flex-start;gap:12px;padding:3px 0}
 .cb{flex:none;width:18px;height:18px;border-radius:4px;border:1.5px solid #cbb894;background:transparent;margin-top:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;color:#fff;font-size:12px;line-height:1}
@@ -61,34 +62,30 @@ html::-webkit-scrollbar,body::-webkit-scrollbar{display:none;width:0;height:0}
 input[data-id]{flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:16px;line-height:1.7;color:#43392a;padding:0}
 input[data-done="1"]{text-decoration:line-through;opacity:.5}
 input::placeholder{color:#bcad90}
-.helper-box{position:fixed;top:35px;width:calc((100vw - var(--page-w)) / 2 - 70px);box-sizing:border-box;padding:12px;background:#faf5ea;border:1px solid rgba(120,90,40,.11);border-radius:8px;z-index:10}
-#dev-helpers{left:35px}
-#deploy-stamp{right:35px;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;line-height:1.5;color:#333}
-#deploy-stamp .ds-cmd{font-weight:700}
-#deploy-stamp .ds-time,#deploy-stamp .ip-secondary{color:#b07a30}
-#deploy-stamp .info-pill{display:flex;gap:5px;align-items:baseline;background:#f1e7d3;border-radius:3px;padding:4px 7px;margin-bottom:5px}
-#deploy-stamp .info-pill:last-child{margin-bottom:0}
-#copy-onpage-todos-as-json{display:flex;flex-direction:column;gap:5px;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif}
-#copy-onpage-todos-as-json .dh-btn{position:relative;display:flex;align-items:center;justify-content:flex-start;gap:4px;height:24px;border:none;margin:0;padding:0 8px;border-radius:3px;background:#f1e7d3;font:inherit;font-size:10px;white-space:nowrap;cursor:pointer;transition:filter .12s;color:inherit}
-#copy-onpage-todos-as-json .ip-primary{color:#333}
-#copy-onpage-todos-as-json .ip-secondary{color:#b07a30}
-#copy-onpage-todos-as-json .dh-btn:hover{filter:brightness(.92)}
+.pill-container{position:fixed;left:35px;width:calc((100vw - var(--page-w)) / 2 - 70px);box-sizing:border-box;padding:12px;background:#faf5ea;border:1px solid rgba(120,90,40,.11);border-radius:8px;z-index:10;display:flex;flex-direction:column;gap:6px;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;line-height:1.5;color:#333}
+#dev-helpers{top:35px}
+#deploy-stamp{bottom:35px}
+#copy-onpage-todos-as-json{display:contents}
+.pill{display:flex;flex-wrap:wrap;gap:5px;align-items:baseline;background:transparent;border-radius:3px;padding:4px 7px}
+.button-pill{border:none;margin:0;font:inherit;text-align:left;cursor:pointer;color:inherit;transition:background .12s}
+.button-pill:hover{background:#f1e7d3}
+.pill-text-primary{color:#333;white-space:nowrap}
+.pill-text-secondary{color:#b07a30;white-space:nowrap}
 </style>
 </head>
 <body>
 <div class="scroll" id="scroll">
 <div class="outer-page" id="left-outer">
-<div class="helper-box" id="dev-helpers">
+<div class="pill-container" id="dev-helpers">
 <div id="copy-onpage-todos-as-json">
-<button class="dh-btn" type="button" data-shape="raw"><span class="ip-primary">copy as json</span> <span class="ip-secondary">raw array</span></button>
-<button class="dh-btn" type="button" data-shape="nested"><span class="ip-primary">copy as json</span> <span class="ip-secondary">nested object tree</span></button>
+<button class="pill button-pill" type="button" data-shape="raw"><span class="pill-text-primary">copy as json</span> <span class="pill-text-secondary">raw array</span></button>
+<button class="pill button-pill" type="button" data-shape="nested"><span class="pill-text-primary">copy as json</span> <span class="pill-text-secondary">nested object tree</span></button>
 </div>
 </div>
+<div class="pill-container" id="deploy-stamp"></div>
 </div>
 <div id="inner-page"><div id="todo-scratchpad"></div></div>
-<div class="outer-page" id="right-outer">
-<div class="helper-box" id="deploy-stamp"></div>
-</div>
+<div class="outer-page" id="right-outer"></div>
 </div>
 <script>
 // clientMain is serialized from the Worker bundle via toString(); wrangler's
@@ -515,16 +512,16 @@ function clientMain() {
       return h12 + ":" + min + ampm + " on " + mName + " " + dNum;
     }
     const branchPill =
-      '<div class="info-pill"><span class="ip-primary">on branch</span> <span class="ip-secondary">#' + s.branch + '</span></div>';
+      '<div class="pill info-pill"><span class="pill-text-primary">on branch</span> <span class="pill-text-secondary">#' + s.branch + '</span></div>';
     if (window.location.hostname === "localhost") {
       box.innerHTML =
-        '<div class="info-pill"><span class="ip-primary">page edit</span> <span class="ip-secondary">' + s.pageEdit.time + '</span></div>' +
-        '<div class="info-pill"><span class="ip-primary">commit</span> <span class="ip-secondary">' + s.commit.time + '</span></div>' +
+        '<div class="pill info-pill"><span class="pill-text-primary">page edit</span> <span class="pill-text-secondary">' + s.pageEdit.time + '</span></div>' +
+        '<div class="pill info-pill"><span class="pill-text-primary">commit</span> <span class="pill-text-secondary">' + s.commit.time + '</span></div>' +
         branchPill;
     } else {
       const deployTime = formatStampTime(s.deploy.date, s.deploy.time);
       box.innerHTML =
-        '<div class="info-pill"><span class="ip-primary">deployed</span> <span class="ip-secondary">' + deployTime + '</span></div>' +
+        '<div class="pill info-pill"><span class="pill-text-primary">deployed</span> <span class="pill-text-secondary">' + deployTime + '</span></div>' +
         branchPill;
     }
   })();

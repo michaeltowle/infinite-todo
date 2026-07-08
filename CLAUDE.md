@@ -108,11 +108,13 @@ US Eastern (`America/New_York`), formatted as `h:mmam/pm on Mon D` (e.g., `9:52a
 
 **Layout & dev-helper names.** `#inner-page` (center column) holds
 `#todo-scratchpad` (the render target for todo rows). `#left-outer` /
-`#right-outer` are the flanking `.outer-page`s (desktop-only). A `.helper-box`
-is a panel pinned in an outer page: `#dev-helpers` (left) holds
-`#copy-onpage-todos-as-json` (two `.dh-btn` action buttons); `#deploy-stamp`
-(right) holds the versioning line and its `.info-pill`s (each an `.ip-primary`
-label + `.ip-secondary` bronze value).
+`#right-outer` are the flanking `.outer-page`s (desktop-only). A `.pill-container`
+is a panel pinned in an outer page; both live in `#left-outer` — `#dev-helpers`
+(top) holds `#copy-onpage-todos-as-json` (two `.pill.button-pill` action
+buttons); `#deploy-stamp` (bottom) holds the versioning line and its
+`.pill.info-pill`s. Every pill shares the `.pill` base and carries a
+`.pill-text-primary` label + `.pill-text-secondary` bronze value (the secondary
+wraps to its own line on overflow).
 
 **Files.** `scripts/generate-build-timestamp.mjs` (build-timestamp generator),
 `src/deploy-stamp.js` (its generated output, imported by `src/index.js`),
