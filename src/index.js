@@ -464,6 +464,23 @@ function clientMain() {
     return true;
   }
 
+  // The topmost visible line has nothing above to merge into, so onBackspaceEmpty
+  // leaves it alone. When it's empty and childless, delete it instead and drop
+  // the caret onto the line that rises to take its place. Kept separate so Delete
+  // reaches only this case, never the merge-up path. No-op on the sole line.
+  function onDeleteTopmostEmpty(line, input) {
+    if (input.value !== '') return false;
+    const i = currentLines.findIndex((l) => l.node.id === line.node.id);
+    if (i !== 0) return false; // only the topmost line
+    if (currentLines.length <= 1) return false; // keep at least one line
+    if (childrenOf(line.node.id).length) return false; // don't delete a parent
+    const next = currentLines[1];
+    commit([{ op: 'delete', id: line.node.id }]);
+    pending = { id: next.node.id, col: 0 };
+    render();
+    return true;
+  }
+
   function onIndent(line, col) {
     const node = line.node;
     const sibs = siblingsOf(node);
@@ -534,7 +551,10 @@ function clientMain() {
       e.preventDefault();
       onEnter(line, t);
     } else if (e.key === 'Backspace' && t.value === '') {
-      if (onBackspaceEmpty(line, t)) e.preventDefault();
+      if (onBackspaceEmpty(line, t) || onDeleteTopmostEmpty(line, t))
+        e.preventDefault();
+    } else if (e.key === 'Delete' && t.value === '') {
+      if (onDeleteTopmostEmpty(line, t)) e.preventDefault();
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       onArrow('up', line, t);
