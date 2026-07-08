@@ -98,16 +98,20 @@ message) · `op` (mutation kind) with values `insert` / `delete` / `replace` /
 `move` · `src/tree.js` (DO class file) · `tree` & `mutations` (API path
 segments) · `treeRevision` (monotonic write counter) · `optparse` (line parser
 — currently a stub) · `root` (the single DO instance name) · UI copy:
-`scratchpad` (tab title), `To-do` (input placeholder), `Copy as JSON`
-(dev-helper button label), `page edit` / `commit` (localhost info-pill labels),
-`deployed at <date> <time>` (live deploy-stamp line).
+`scratchpad` (tab title), `To-do` (input placeholder), `copy as json` / `raw array` /
+`nested object tree` (the two `#copy-onpage-todos-as-json` buttons: primary + secondary text),
+`page edit` / `commit` (localhost info-pill labels),
+`on branch` (info-pill label, shown both localhost and live),
+`deployed at <date> <time>` (live deploy-stamp line). All stamp times are
+US Eastern (`America/New_York`).
 
 **Layout & dev-helper names.** `#inner-page` (center column) holds
 `#todo-scratchpad` (the render target for todo rows). `#left-outer` /
 `#right-outer` are the flanking `.outer-page`s (desktop-only). A `.helper-box`
 is a panel pinned in an outer page: `#dev-helpers` (left) holds
-`#copy-onpage-todos-as-json`; `#deploy-stamp` (right) holds the versioning line
-and its `.info-pill`s.
+`#copy-onpage-todos-as-json` (two `.dh-btn` action buttons); `#deploy-stamp`
+(right) holds the versioning line and its `.info-pill`s (each an `.ip-primary`
+label + `.ip-secondary` bronze value).
 
 **Files.** `scripts/generate-build-timestamp.mjs` (build-timestamp generator),
 `src/deploy-stamp.js` (its generated output, imported by `src/index.js`),

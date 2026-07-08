@@ -13,13 +13,26 @@ const outFile = join(root, "src", "deploy-stamp.js");
 const mode = process.argv[2] === "deploy" ? "deploy" : "dev";
 const empty = { date: "", time: "" };
 
-// A Date → { date: "YYYY-MM-DD", time: "HH:MM:SS" } in local time.
+// A Date → { date: "YYYY-MM-DD", time: "HH:MM:SS" } in US Eastern time
+// (America/New_York — shifts EST/EDT with DST) regardless of the build host.
+const fmt = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York",
+  year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+});
 function parts(d) {
-  const p = (n) => String(n).padStart(2, "0");
-  return {
-    date: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`,
-    time: `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`,
-  };
+  const o = {};
+  for (const { type, value } of fmt.formatToParts(d)) o[type] = value;
+  return { date: `${o.year}-${o.month}-${o.day}`, time: `${o.hour}:${o.minute}:${o.second}` };
+}
+
+// Currently checked-out branch (whatever wrangler will bundle). "" if unknown.
+function currentBranch() {
+  try {
+    return execSync("git rev-parse --abbrev-ref HEAD", { cwd: root }).toString().trim();
+  } catch {
+    return "";
+  }
 }
 
 // Newest mtime under src/, excluding the generated file itself.
@@ -32,7 +45,7 @@ function newestSrcMtime(dir, acc) {
   return acc;
 }
 
-const stamp = { mode, deploy: empty, pageEdit: empty, commit: empty };
+const stamp = { mode, branch: currentBranch(), deploy: empty, pageEdit: empty, commit: empty };
 
 if (mode === "deploy") {
   stamp.deploy = parts(new Date());

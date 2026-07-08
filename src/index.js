@@ -65,17 +65,14 @@ input::placeholder{color:#bcad90}
 #dev-helpers{left:35px}
 #deploy-stamp{right:35px;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;line-height:1.5;color:#333}
 #deploy-stamp .ds-cmd{font-weight:700}
-#deploy-stamp .ds-time,#deploy-stamp .ip-time{color:#b07a30}
+#deploy-stamp .ds-time,#deploy-stamp .ip-secondary{color:#b07a30}
 #deploy-stamp .info-pill{display:flex;gap:5px;align-items:baseline;background:#f1e7d3;border-radius:3px;padding:4px 7px;margin-bottom:5px}
 #deploy-stamp .info-pill:last-child{margin-bottom:0}
-#copy-onpage-todos-as-json{position:relative;display:flex;width:75px;height:24px;border-radius:3px;cursor:pointer;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif}
-#copy-onpage-todos-as-json .dh-half{position:relative;flex:1;border:none;margin:0;padding:0;font:inherit;cursor:pointer;transition:filter .12s}
-#copy-onpage-todos-as-json .dh-left{background:#f1e7d3;border-radius:3px 0 0 3px}
-#copy-onpage-todos-as-json .dh-right{background:#e7d9be;border-radius:0 3px 3px 0}
-#copy-onpage-todos-as-json .dh-half:hover{filter:brightness(.92)}
-#copy-onpage-todos-as-json .dh-half::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 5px);left:50%;transform:translateX(-50%);white-space:nowrap;background:#43392a;color:#faf5ea;font-size:11px;line-height:1;padding:4px 6px;border-radius:4px;pointer-events:none;opacity:0;transition:opacity .06s}
-#copy-onpage-todos-as-json .dh-half:hover::after{opacity:1;transition-delay:.08s}
-#copy-onpage-todos-as-json .dh-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;white-space:nowrap;font-size:10px;color:#333}
+#copy-onpage-todos-as-json{display:flex;flex-direction:column;gap:5px;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif}
+#copy-onpage-todos-as-json .dh-btn{position:relative;display:flex;align-items:center;justify-content:flex-start;gap:4px;height:24px;border:none;margin:0;padding:0 8px;border-radius:3px;background:#f1e7d3;font:inherit;font-size:10px;white-space:nowrap;cursor:pointer;transition:filter .12s;color:inherit}
+#copy-onpage-todos-as-json .ip-primary{color:#333}
+#copy-onpage-todos-as-json .ip-secondary{color:#b07a30}
+#copy-onpage-todos-as-json .dh-btn:hover{filter:brightness(.92)}
 </style>
 </head>
 <body>
@@ -83,9 +80,8 @@ input::placeholder{color:#bcad90}
 <div class="outer-page" id="left-outer">
 <div class="helper-box" id="dev-helpers">
 <div id="copy-onpage-todos-as-json">
-<button class="dh-half dh-left" type="button" data-shape="raw" data-tip="Raw nodes array"></button>
-<button class="dh-half dh-right" type="button" data-shape="nested" data-tip="Nested tree"></button>
-<span class="dh-label">Copy as JSON</span>
+<button class="dh-btn" type="button" data-shape="raw"><span class="ip-primary">copy as json</span> <span class="ip-secondary">raw array</span></button>
+<button class="dh-btn" type="button" data-shape="nested"><span class="ip-primary">copy as json</span> <span class="ip-secondary">nested object tree</span></button>
 </div>
 </div>
 </div>
@@ -498,20 +494,25 @@ function clientMain() {
       }));
     })(null);
   }
-  // ── Deploy stamp: live shows the deploy line, localhost shows the two
-  // info-pills. Decided client-side by hostname (the dev-server proxy rewrites
-  // the server-side one). BUILD_STAMP is inlined into the page. ──
+  // ── Deploy stamp: live shows the deploy line, localhost shows the page-edit
+  // and commit pills; both show the on-branch pill. Decided client-side by
+  // hostname (the dev-server proxy rewrites the server-side one). BUILD_STAMP
+  // is inlined into the page. ──
   (function renderDeployStamp() {
     const box = document.getElementById("deploy-stamp");
     if (!box) return;
     const s = BUILD_STAMP;
+    const branchPill =
+      '<div class="info-pill"><span class="ip-primary">on branch</span> <span class="ip-secondary">' + s.branch + '</span></div>';
     if (window.location.hostname === "localhost") {
       box.innerHTML =
-        '<div class="info-pill"><span class="ip-label">page edit</span> <span class="ip-time">' + s.pageEdit.time + '</span></div>' +
-        '<div class="info-pill"><span class="ip-label">commit</span> <span class="ip-time">' + s.commit.time + '</span></div>';
+        '<div class="info-pill"><span class="ip-primary">page edit</span> <span class="ip-secondary">' + s.pageEdit.time + '</span></div>' +
+        '<div class="info-pill"><span class="ip-primary">commit</span> <span class="ip-secondary">' + s.commit.time + '</span></div>' +
+        branchPill;
     } else {
       box.innerHTML =
-        '<div class="ds-line">deployed at <span class="ds-date">' + s.deploy.date + '</span> <span class="ds-time">' + s.deploy.time + '</span></div>';
+        '<div class="ds-line">deployed at <span class="ds-date">' + s.deploy.date + '</span> <span class="ds-time">' + s.deploy.time + '</span></div>' +
+        branchPill;
     }
   })();
 
