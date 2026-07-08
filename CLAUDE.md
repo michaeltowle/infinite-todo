@@ -98,7 +98,8 @@ message) · `op` (mutation kind) with values `insert` / `delete` / `replace` /
 `move` · `src/tree.js` (DO class file) · `tree` & `mutations` (API path
 segments) · `treeRevision` (monotonic write counter) · `optparse` (line parser
 — currently a stub) · `root` (the single DO instance name) · UI copy:
-`scratchpad` (tab title), `To-do` (input placeholder), `copy as json` / `raw array` /
+`Scratchpad` (tab title, live) / `Scratchpad — localhost` (tab title,
+localhost), `To-do` (input placeholder), `copy as json` / `raw array` /
 `nested object tree` (the two `#copy-onpage-todos-as-json` buttons: primary + secondary text),
 `page edit` / `commit` (localhost info-pill labels),
 `deployed` (live deploy-stamp pill label),

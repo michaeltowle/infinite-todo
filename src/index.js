@@ -45,7 +45,7 @@ function page() {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,${encodeURIComponent(iconSvg)}">
-<title>scratchpad</title>
+<title>Scratchpad</title>
 <style>
 :root{--page-w:1200px}
 html,body{margin:0;padding:0;background:#f1ebdf;scrollbar-width:none}
@@ -528,6 +528,11 @@ function clientMain() {
         branchPill;
     }
   })();
+
+  // Tab title mirrors the deploy stamp's hostname check: live is "Scratchpad",
+  // localhost is tagged so the two tabs are distinguishable.
+  document.title =
+    window.location.hostname === "localhost" ? "Scratchpad — localhost" : "Scratchpad";
 
   const devPill = document.getElementById("copy-onpage-todos-as-json");
   if (devPill) {
