@@ -118,7 +118,10 @@ wraps to its own line on overflow).
 
 **Files.** `scripts/generate-build-timestamp.mjs` (build-timestamp generator),
 `src/deploy-stamp.js` (its generated output, imported by `src/index.js`),
-`src/scratchpad-pencil-icon.svg` (favicon source, inlined as a data-URI).
+`src/scratchpad-pencil-icon.svg` (favicon source, inlined as a data-URI),
+`personality/quotes.json` (list of `{ quoteText, quoteAuthor }` POJOs, bundled
++ inlined as the page global `QUOTES`; used to seed a fresh todo when the
+scratchpad empties out — line format `"<quoteText>" -- <quoteAuthor>`).
 
 Everything else structural or user-facing needs approval; internal helper
 functions and locals are named freely (rule 1). Still pending: the node-type

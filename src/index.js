@@ -15,6 +15,11 @@ import iconSvg from "./scratchpad-pencil-icon.svg";
 // written by scripts/generate-build-timestamp.mjs. Rendered into #deploy-stamp.
 import { buildStamp } from "./deploy-stamp.js";
 
+// Personality quotes ({ quoteText, quoteAuthor } POJOs). Bundled at build time
+// and inlined into the page as QUOTES; used to seed a fresh todo when the
+// scratchpad empties out.
+import quotes from "../personality/quotes.json";
+
 const API_PATHS = new Set(["/scratchpad/tree", "/scratchpad/mutations"]);
 
 export default {
@@ -94,6 +99,7 @@ input::placeholder{color:#bcad90}
 // serialized body resolves it here.
 var __name = function (x) { return x; };
 var BUILD_STAMP = ${JSON.stringify(buildStamp)};
+var QUOTES = ${JSON.stringify(quotes)};
 ;(${clientMain.toString()})();
 </script>
 </body>
@@ -210,6 +216,24 @@ function clientMain() {
   function siblingsOf(node) {
     return childrenOf(node.parentID);
   }
+  // True when `node` and every descendant is checked — the whole subtree is
+  // done. `kids` is an optional childMap() (parentID → sorted children); pass
+  // one to reuse it across calls. Used to hide completed top-level trees in
+  // walk(), but kept general for future callers.
+  function fullyChecked(node, kids) {
+    kids = kids || childMap();
+    if (!node.checkbox) return false;
+    for (const c of kids.get(node.id) || []) {
+      if (!fullyChecked(c, kids)) return false;
+    }
+    return true;
+  }
+  // Walk parent pointers up to the 0-depth node that roots `id`'s tree.
+  function rootOf(id) {
+    let n = nodesById.get(id);
+    while (n && n.parentID != null) n = nodesById.get(n.parentID);
+    return n;
+  }
   // Fractional position between two neighbors (numbers or null for open ends).
   // NOTE: float midpoint gives ~50 same-spot inserts before precision loss;
   // acceptable at scratchpad scale. Revisit with renumber-on-collision later.
@@ -226,6 +250,9 @@ function clientMain() {
     const lines = [];
     (function dfs(parentID, depth) {
       for (const n of kids.get(parentID) || []) {
+        // A todo-tree is a single 0-depth node; hide the whole tree once every
+        // box in it is checked (see fullyChecked).
+        if (depth === 0 && fullyChecked(n, kids)) continue;
         lines.push({ node: n, depth });
         dfs(n.id, depth + 1);
       }
@@ -348,7 +375,15 @@ function clientMain() {
     if (!n) return;
     const val = !n.checkbox;
     commit([{ op: "replace", id: id, checkbox: val }]);
-    // Direct DOM update — no re-render, so the caret is untouched.
+    // Checking the last open box completes the whole top-level tree, which then
+    // drops out of the view (see walk()) — re-render so it disappears. Any other
+    // toggle updates the one checkbox in place, leaving the caret untouched.
+    const root = rootOf(id);
+    if (val && root && fullyChecked(root)) {
+      seedIfEmpty(); // if that was the last visible tree, drop in a fresh quote
+      render();
+      return;
+    }
     btn.className = val ? "cb done" : "cb";
     btn.textContent = val ? "✓" : "";
     const input = list.querySelector('input[data-id="' + id + '"]');
@@ -474,22 +509,26 @@ function clientMain() {
   scroll.addEventListener("mousedown", blankFocus);
 
   // ── Dev helper: copy the on-page todos as JSON (non-mobile pill) ──
-  // Left half → the flat stored nodes as-is; right half → the same nodes
-  // nested under their parents in sibling order.
+  // Both halves cover exactly the nodes visible on the page — completed trees
+  // that dropped out (see walk()) are excluded. Left half → the flat nodes in
+  // document order; right half → the same nodes nested under their parents in
+  // sibling order.
   function rawNodes() {
-    return [...nodesById.values()];
+    return walk().map((l) => l.node);
   }
   function nestedTree() {
     const kids = childMap();
-    return (function build(parentID) {
-      return (kids.get(parentID) || []).map((n) => ({
-        id: n.id,
-        checkbox: n.checkbox,
-        keyboardText: n.keyboardText,
-        position: n.position,
-        children: build(n.id),
-      }));
-    })(null);
+    return (function build(parentID, depth) {
+      return (kids.get(parentID) || [])
+        .filter((n) => !(depth === 0 && fullyChecked(n, kids)))
+        .map((n) => ({
+          id: n.id,
+          checkbox: n.checkbox,
+          keyboardText: n.keyboardText,
+          position: n.position,
+          children: build(n.id, depth + 1),
+        }));
+    })(null, 0);
   }
   // ── Deploy stamp: live shows the deploy pill, localhost shows the page-edit
   // and commit pills; both show the on-branch pill. Decided client-side by
@@ -542,11 +581,25 @@ function clientMain() {
     });
   }
 
+  // ── Auto-seed: keep the scratchpad from becoming a dead end ──
+  // Compose a todo line from a quote (currently a one-item list). Format
+  // matches the approved sample: "<quoteText>" -- <quoteAuthor>.
+  function quoteLine() {
+    const q = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+    return q ? '"' + q.quoteText + '" -- ' + q.quoteAuthor : "";
+  }
+  // When nothing is visible (fresh scratchpad, or every tree checked off and
+  // hidden), drop in a new todo seeded from a quote. Caller re-renders.
+  function seedIfEmpty() {
+    if (walk().length > 0) return;
+    const roots = childrenOf(null);
+    const lastPos = roots.length ? roots[roots.length - 1].position : null;
+    commit([{ op: "insert", id: crypto.randomUUID(), parentID: null, position: between(lastPos, null), checkbox: false, keyboardText: quoteLine() }]);
+  }
+
   // ── Boot ──
   loadTree().then(() => {
-    if (nodesById.size === 0) {
-      commit([{ op: "insert", id: crypto.randomUUID(), parentID: null, position: 1, checkbox: false, keyboardText: "" }]);
-    }
+    seedIfEmpty();
     render();
     const inputs = list.querySelectorAll("input[data-id]");
     const last = inputs[inputs.length - 1];
