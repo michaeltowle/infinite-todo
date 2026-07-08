@@ -5,7 +5,7 @@ Operating instructions for Claude on this repo. Read before acting.
 ## Hard rules (do not violate without explicit user say-so)
 
 1. **No naming without approval — for names that matter.** For anything
-   *structural or user-facing* I get the user's pick: classes, files,
+   _structural or user-facing_ I get the user's pick: classes, files,
    routes/paths, fields/attributes, enums and their values, bindings, storage
    keys, wire/message shapes, node types, and any UI-facing name. When such a
    name is needed I **propose 3–5 candidates** (recommended pick first,
@@ -23,6 +23,7 @@ If a task can't proceed without a new name or new UI/copy, surface that and
 wait — don't guess.
 
 ## Naming conventions
+
 - **Prefer XML / XPath / DOM terminology** wherever a concept has an
   established equivalent there — the data model is an XML-ish document tree,
   so this recurs. When proposing names (see rule 1), lead with the
@@ -34,10 +35,11 @@ wait — don't guess.
 ## What this is
 
 `infinite-todo` — a private hierarchical todo editor served at
-`x.michaeltowle.io` on a single Cloudflare Worker. The app is the
+`x.michaeltowle.io` on a single Cloudflare Worker. At present, the only available view is the
 **scratchpad**.
 
 ### Frame (mental model to adopt)
+
 - The scratchpad is a hierarchy of **todo-nodes**.
 - Under the hood, nodes are **typed**. The type of a node is determined by
   the user's input — parsed from what they type, analogous to command-line
@@ -46,8 +48,8 @@ wait — don't guess.
 - Current scope: exactly **one** node type, **todo-line-item**.
   - Stored per node: `id` (stable), `checkbox` (bool), `keyboardText` (str),
     `parentID` (its parent's `id`; null/absent at root), `position` (sibling
-    sort key — the stored, *relative* order value).
-  - Computed at render, NOT stored: `documentPosition` (int — the *absolute*
+    sort key — the stored, _relative_ order value).
+  - Computed at render, NOT stored: `documentPosition` (int — the _absolute_
     line in the flattened tree), `depthLevel` (int — nesting depth).
   - `checkbox`, `keyboardText`, `id`, `parentID`, `position`,
     `documentPosition`, `depthLevel`, and the type name are user-approved.
@@ -89,6 +91,7 @@ wait — don't guess.
   lets it detect drift and refetch.
 
 ## Approved names (usable without asking)
+
 scratchpad · todo-node · todo-line-item · `checkbox` · `keyboardText` ·
 `position` · `documentPosition` · `depthLevel` · `infinite-todo` ·
 `x.michaeltowle.io` · `/scratchpad` · `TodoTree` (Durable Object class) ·
@@ -120,14 +123,16 @@ wraps to its own line on overflow).
 `src/deploy-stamp.js` (its generated output, imported by `src/index.js`),
 `src/scratchpad-pencil-icon.svg` (favicon source, inlined as a data-URI),
 `personality/quotes.json` (list of `{ quoteText, quoteAuthor }` POJOs, bundled
-+ inlined as the page global `QUOTES`; used to seed a fresh todo when the
-scratchpad empties out — line format `"<quoteText>" -- <quoteAuthor>`).
+
+- inlined as the page global `QUOTES`; used to seed a fresh todo when the
+  scratchpad empties out — line format `"<quoteText>" -- <quoteAuthor>`).
 
 Everything else structural or user-facing needs approval; internal helper
 functions and locals are named freely (rule 1). Still pending: the node-type
 enum, for when real node types arrive.
 
 ## Repo notes
+
 - Cloudflare Worker; config in `wrangler.toml`. Entry is `src/index.js`
   (approved); `main` points there. DO binding `TREE` → class `TodoTree` is
   wired (binding + `v1` migration in `wrangler.toml`).
