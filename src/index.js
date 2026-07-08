@@ -7,11 +7,20 @@
 
 export { TodoTree } from "./tree.js";
 
+// Imported as text (see the Text rule in wrangler.toml) and inlined into the
+// page head as a data-URI favicon — no extra route, so routing stays 404-only.
+import iconSvg from "./scratchpad-pencil-icon.svg";
+
+// Build-time values (deploy time; or latest src edit + last commit for dev),
+// written by scripts/generate-build-timestamp.mjs. Rendered into #deploy-stamp.
+import { buildStamp } from "./deploy-stamp.js";
+
 const API_PATHS = new Set(["/scratchpad/tree", "/scratchpad/mutations"]);
 
 export default {
   async fetch(request, env) {
-    const { pathname } = new URL(request.url);
+    const url = new URL(request.url);
+    const { pathname } = url;
 
     if (API_PATHS.has(pathname)) {
       return treeStub(env).fetch(request);
@@ -35,29 +44,63 @@ function page() {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,${encodeURIComponent(iconSvg)}">
 <title>scratchpad</title>
 <style>
+:root{--page-w:1200px}
 html,body{margin:0;padding:0;background:#f1ebdf;scrollbar-width:none}
 html::-webkit-scrollbar,body::-webkit-scrollbar{display:none;width:0;height:0}
 .scroll{min-height:100vh;width:100%;display:flex;justify-content:center;background:#f1ebdf}
-.page{width:1200px;max-width:100%;background:#faf5ea;border-left:1px solid rgba(120,90,40,.11);border-right:1px solid rgba(120,90,40,.11);padding:92px 120px 320px;box-sizing:border-box}
-@media (max-width:600px){.page{padding:32px 16px 320px}}
+.outer-page{flex:1 1 0;min-width:0}
+@media (max-width:1279px){.outer-page{display:none}}
+#inner-page{width:var(--page-w);max-width:100%;background:#faf5ea;border-left:1px solid rgba(120,90,40,.11);border-right:1px solid rgba(120,90,40,.11);padding:92px 120px 320px;box-sizing:border-box}
+@media (max-width:600px){#inner-page{padding:32px 16px 320px}}
 .row{display:flex;align-items:flex-start;gap:12px;padding:3px 0}
 .cb{flex:none;width:18px;height:18px;border-radius:4px;border:1.5px solid #cbb894;background:transparent;margin-top:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;color:#fff;font-size:12px;line-height:1}
 .cb.done{border-color:#9c7a3c;background:#9c7a3c}
 input[data-id]{flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:16px;line-height:1.7;color:#43392a;padding:0}
 input[data-done="1"]{text-decoration:line-through;opacity:.5}
 input::placeholder{color:#bcad90}
+.helper-box{position:fixed;top:35px;width:calc((100vw - var(--page-w)) / 2 - 70px);box-sizing:border-box;padding:12px;background:#faf5ea;border:1px solid rgba(120,90,40,.11);border-radius:8px;z-index:10}
+#dev-helpers{left:35px}
+#deploy-stamp{right:35px;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;line-height:1.5;color:#333}
+#deploy-stamp .ds-cmd{font-weight:700}
+#deploy-stamp .ds-time,#deploy-stamp .ip-time{color:#b07a30}
+#deploy-stamp .info-pill{display:flex;gap:5px;align-items:baseline;background:#f1e7d3;border-radius:3px;padding:4px 7px;margin-bottom:5px}
+#deploy-stamp .info-pill:last-child{margin-bottom:0}
+#copy-onpage-todos-as-json{position:relative;display:flex;width:75px;height:24px;border-radius:3px;cursor:pointer;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif}
+#copy-onpage-todos-as-json .dh-half{position:relative;flex:1;border:none;margin:0;padding:0;font:inherit;cursor:pointer;transition:filter .12s}
+#copy-onpage-todos-as-json .dh-left{background:#f1e7d3;border-radius:3px 0 0 3px}
+#copy-onpage-todos-as-json .dh-right{background:#e7d9be;border-radius:0 3px 3px 0}
+#copy-onpage-todos-as-json .dh-half:hover{filter:brightness(.92)}
+#copy-onpage-todos-as-json .dh-half::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 5px);left:50%;transform:translateX(-50%);white-space:nowrap;background:#43392a;color:#faf5ea;font-size:11px;line-height:1;padding:4px 6px;border-radius:4px;pointer-events:none;opacity:0;transition:opacity .06s}
+#copy-onpage-todos-as-json .dh-half:hover::after{opacity:1;transition-delay:.08s}
+#copy-onpage-todos-as-json .dh-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;white-space:nowrap;font-size:10px;color:#333}
 </style>
 </head>
 <body>
-<div class="scroll" id="scroll"><div class="page" id="list"></div></div>
+<div class="scroll" id="scroll">
+<div class="outer-page" id="left-outer">
+<div class="helper-box" id="dev-helpers">
+<div id="copy-onpage-todos-as-json">
+<button class="dh-half dh-left" type="button" data-shape="raw" data-tip="Raw nodes array"></button>
+<button class="dh-half dh-right" type="button" data-shape="nested" data-tip="Nested tree"></button>
+<span class="dh-label">Copy as JSON</span>
+</div>
+</div>
+</div>
+<div id="inner-page"><div id="todo-scratchpad"></div></div>
+<div class="outer-page" id="right-outer">
+<div class="helper-box" id="deploy-stamp"></div>
+</div>
+</div>
 <script>
 // clientMain is serialized from the Worker bundle via toString(); wrangler's
 // esbuild wraps named functions with a keepNames __name() helper that lives in
 // module scope and isn't carried into the page. Shim it (no-op) so the
 // serialized body resolves it here.
 var __name = function (x) { return x; };
+var BUILD_STAMP = ${JSON.stringify(buildStamp)};
 ;(${clientMain.toString()})();
 </script>
 </body>
@@ -78,7 +121,7 @@ function clientMain() {
   const FONT = "16px -apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif";
   const DEBOUNCE_MS = 400;
 
-  const list = document.getElementById("list");
+  const list = document.getElementById("todo-scratchpad");
   const scroll = document.getElementById("scroll");
 
   // ── Data layer: client mirror of the DO ──
@@ -163,14 +206,16 @@ function clientMain() {
   function cmpNodes(a, b) {
     return a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   }
-  function siblingsOf(parentID) {
+  // The primitive: every node whose parent is parentID, in sibling order.
+  function childrenOf(parentID) {
     const p = parentID != null ? parentID : null;
     return [...nodesById.values()]
       .filter((n) => (n.parentID != null ? n.parentID : null) === p)
       .sort(cmpNodes);
   }
-  function childrenOf(id) {
-    return siblingsOf(id);
+  // A node's own row (its parent's children — includes the node itself).
+  function siblingsOf(node) {
+    return childrenOf(node.parentID);
   }
   // Fractional position between two neighbors (numbers or null for open ends).
   // NOTE: float midpoint gives ~50 same-spot inserts before precision loss;
@@ -323,7 +368,7 @@ function clientMain() {
     const nid = crypto.randomUUID();
     if (col === 0 && input.value !== "") {
       // Caret at start of a non-empty line: new empty line ABOVE (prev sibling).
-      const sibs = siblingsOf(node.parentID);
+      const sibs = siblingsOf(node);
       const idx = sibs.findIndex((s) => s.id === node.id);
       const lo = idx > 0 ? sibs[idx - 1].position : null;
       commit([
@@ -336,7 +381,7 @@ function clientMain() {
       if (kids.length) {
         commit([{ op: "insert", id: nid, parentID: node.id, position: between(null, kids[0].position), checkbox: false, keyboardText: "" }]);
       } else {
-        const sibs = siblingsOf(node.parentID);
+        const sibs = siblingsOf(node);
         const idx = sibs.findIndex((s) => s.id === node.id);
         const hi = idx + 1 < sibs.length ? sibs[idx + 1].position : null;
         commit([{ op: "insert", id: nid, parentID: node.parentID != null ? node.parentID : null, position: between(node.position, hi), checkbox: false, keyboardText: "" }]);
@@ -362,7 +407,7 @@ function clientMain() {
 
   function onIndent(line, col) {
     const node = line.node;
-    const sibs = siblingsOf(node.parentID);
+    const sibs = siblingsOf(node);
     const idx = sibs.findIndex((s) => s.id === node.id);
     if (idx <= 0) return; // no previous sibling → nothing to indent under
     const newParent = sibs[idx - 1];
@@ -378,7 +423,7 @@ function clientMain() {
     if (node.parentID == null) return; // already at root
     const parent = nodesById.get(node.parentID);
     const grandID = parent.parentID != null ? parent.parentID : null;
-    const gsibs = siblingsOf(grandID);
+    const gsibs = siblingsOf(parent);
     const pidx = gsibs.findIndex((s) => s.id === parent.id);
     const hi = pidx + 1 < gsibs.length ? gsibs[pidx + 1].position : null;
     commit([{ op: "move", id: node.id, parentID: grandID, position: between(parent.position, hi) }]);
@@ -434,6 +479,52 @@ function clientMain() {
     if (btn) onToggle(btn);
   });
   scroll.addEventListener("mousedown", blankFocus);
+
+  // ── Dev helper: copy the on-page todos as JSON (non-mobile pill) ──
+  // Left half → the flat stored nodes as-is; right half → the same nodes
+  // nested under their parents in sibling order.
+  function rawNodes() {
+    return [...nodesById.values()];
+  }
+  function nestedTree() {
+    const kids = childMap();
+    return (function build(parentID) {
+      return (kids.get(parentID) || []).map((n) => ({
+        id: n.id,
+        checkbox: n.checkbox,
+        keyboardText: n.keyboardText,
+        position: n.position,
+        children: build(n.id),
+      }));
+    })(null);
+  }
+  // ── Deploy stamp: live shows the deploy line, localhost shows the two
+  // info-pills. Decided client-side by hostname (the dev-server proxy rewrites
+  // the server-side one). BUILD_STAMP is inlined into the page. ──
+  (function renderDeployStamp() {
+    const box = document.getElementById("deploy-stamp");
+    if (!box) return;
+    const s = BUILD_STAMP;
+    if (window.location.hostname === "localhost") {
+      box.innerHTML =
+        '<div class="info-pill"><span class="ip-label">page edit</span> <span class="ip-time">' + s.pageEdit.time + '</span></div>' +
+        '<div class="info-pill"><span class="ip-label">commit</span> <span class="ip-time">' + s.commit.time + '</span></div>';
+    } else {
+      box.innerHTML =
+        '<div class="ds-line">deployed at <span class="ds-date">' + s.deploy.date + '</span> <span class="ds-time">' + s.deploy.time + '</span></div>';
+    }
+  })();
+
+  const devPill = document.getElementById("copy-onpage-todos-as-json");
+  if (devPill) {
+    devPill.addEventListener("click", (e) => {
+      const half = e.target.closest("[data-shape]");
+      if (!half) return;
+      const data = half.dataset.shape === "nested" ? nestedTree() : rawNodes();
+      const text = JSON.stringify(data, null, 2);
+      if (navigator.clipboard) navigator.clipboard.writeText(text);
+    });
+  }
 
   // ── Boot ──
   loadTree().then(() => {

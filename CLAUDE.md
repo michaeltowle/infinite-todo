@@ -98,7 +98,20 @@ message) · `op` (mutation kind) with values `insert` / `delete` / `replace` /
 `move` · `src/tree.js` (DO class file) · `tree` & `mutations` (API path
 segments) · `treeRevision` (monotonic write counter) · `optparse` (line parser
 — currently a stub) · `root` (the single DO instance name) · UI copy:
-`scratchpad` (tab title), `To-do` (input placeholder)
+`scratchpad` (tab title), `To-do` (input placeholder), `Copy as JSON`
+(dev-helper button label), `page edit` / `commit` (localhost info-pill labels),
+`deployed at <date> <time>` (live deploy-stamp line).
+
+**Layout & dev-helper names.** `#inner-page` (center column) holds
+`#todo-scratchpad` (the render target for todo rows). `#left-outer` /
+`#right-outer` are the flanking `.outer-page`s (desktop-only). A `.helper-box`
+is a panel pinned in an outer page: `#dev-helpers` (left) holds
+`#copy-onpage-todos-as-json`; `#deploy-stamp` (right) holds the versioning line
+and its `.info-pill`s.
+
+**Files.** `scripts/generate-build-timestamp.mjs` (build-timestamp generator),
+`src/deploy-stamp.js` (its generated output, imported by `src/index.js`),
+`src/scratchpad-pencil-icon.svg` (favicon source, inlined as a data-URI).
 
 Everything else structural or user-facing needs approval; internal helper
 functions and locals are named freely (rule 1). Still pending: the node-type
@@ -106,8 +119,20 @@ enum, for when real node types arrive.
 
 ## Repo notes
 - Cloudflare Worker; config in `wrangler.toml`. Entry is `src/index.js`
-  (approved); `main` must point there. DO binding `TREE` → class `TodoTree`
-  still needs wiring (binding + migration).
-- Not gitignored: source, config, `package-lock.json`. Ignored:
-  `node_modules/`, `.wrangler/`, `.dev.vars`.
+  (approved); `main` points there. DO binding `TREE` → class `TodoTree` is
+  wired (binding + `v1` migration in `wrangler.toml`).
+- **Build stamp.** `npm run dev` / `npm run deploy` run `pre` hooks that
+  regenerate `src/deploy-stamp.js` via `scripts/generate-build-timestamp.mjs`
+  (dev = newest `src/` edit + last commit; deploy = deploy time). Deploy with
+  `npm run deploy`, not raw `wrangler deploy`, or the stamp goes stale. The page
+  decides live-vs-localhost **client-side** (`window.location.hostname`); the
+  dev-server's server-side hostname is unreliable.
+- **Deploy = production.** Only one Worker (`x.michaeltowle.io`,
+  `workers_dev = false`); a deploy overwrites the live site (no staging env).
+  Works from any git branch — `wrangler` bundles the working tree, not a branch.
+- `.svg` files import as text (Text rule in `wrangler.toml`) for the inlined
+  favicon.
+- Not gitignored: source, config, `package-lock.json`, `src/deploy-stamp.js`
+  (tracked; overwritten each build). Ignored: `node_modules/`, `.wrangler/`,
+  `.dev.vars`.
 - Commit/push only when asked.

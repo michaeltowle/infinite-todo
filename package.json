@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "node scripts/generate-build-timestamp.mjs dev",
     "dev": "wrangler dev",
+    "predeploy": "node scripts/generate-build-timestamp.mjs deploy",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {
