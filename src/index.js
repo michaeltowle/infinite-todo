@@ -494,7 +494,7 @@ function clientMain() {
       }));
     })(null);
   }
-  // ── Deploy stamp: live shows the deploy line, localhost shows the page-edit
+  // ── Deploy stamp: live shows the deploy pill, localhost shows the page-edit
   // and commit pills; both show the on-branch pill. Decided client-side by
   // hostname (the dev-server proxy rewrites the server-side one). BUILD_STAMP
   // is inlined into the page. ──
@@ -502,16 +502,29 @@ function clientMain() {
     const box = document.getElementById("deploy-stamp");
     if (!box) return;
     const s = BUILD_STAMP;
+    // Format "2026-07-08" + "09:52:36" → "9:52am on Jul 8"
+    function formatStampTime(date, time) {
+      const [y, m, d] = date.split("-");
+      const [h, min] = time.split(":");
+      const hNum = parseInt(h, 10);
+      const ampm = hNum < 12 ? "am" : "pm";
+      const h12 = hNum === 0 ? 12 : hNum > 12 ? hNum - 12 : hNum;
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const mName = months[parseInt(m, 10) - 1];
+      const dNum = parseInt(d, 10);
+      return h12 + ":" + min + ampm + " on " + mName + " " + dNum;
+    }
     const branchPill =
-      '<div class="info-pill"><span class="ip-primary">on branch</span> <span class="ip-secondary">' + s.branch + '</span></div>';
+      '<div class="info-pill"><span class="ip-primary">on branch</span> <span class="ip-secondary">#' + s.branch + '</span></div>';
     if (window.location.hostname === "localhost") {
       box.innerHTML =
         '<div class="info-pill"><span class="ip-primary">page edit</span> <span class="ip-secondary">' + s.pageEdit.time + '</span></div>' +
         '<div class="info-pill"><span class="ip-primary">commit</span> <span class="ip-secondary">' + s.commit.time + '</span></div>' +
         branchPill;
     } else {
+      const deployTime = formatStampTime(s.deploy.date, s.deploy.time);
       box.innerHTML =
-        '<div class="ds-line">deployed at <span class="ds-date">' + s.deploy.date + '</span> <span class="ds-time">' + s.deploy.time + '</span></div>' +
+        '<div class="info-pill"><span class="ip-primary">deployed</span> <span class="ip-secondary">' + deployTime + '</span></div>' +
         branchPill;
     }
   })();

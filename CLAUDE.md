@@ -101,9 +101,9 @@ segments) · `treeRevision` (monotonic write counter) · `optparse` (line parser
 `scratchpad` (tab title), `To-do` (input placeholder), `copy as json` / `raw array` /
 `nested object tree` (the two `#copy-onpage-todos-as-json` buttons: primary + secondary text),
 `page edit` / `commit` (localhost info-pill labels),
-`on branch` (info-pill label, shown both localhost and live),
-`deployed at <date> <time>` (live deploy-stamp line). All stamp times are
-US Eastern (`America/New_York`).
+`deployed` (live deploy-stamp pill label),
+`on branch` (info-pill label, shown both localhost and live; branch name prefixed with `#`). All stamp times are
+US Eastern (`America/New_York`), formatted as `h:mmam/pm on Mon D` (e.g., `9:52am on Jul 8`).
 
 **Layout & dev-helper names.** `#inner-page` (center column) holds
 `#todo-scratchpad` (the render target for todo rows). `#left-outer` /
