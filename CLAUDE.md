@@ -93,7 +93,7 @@ segments) · `treeRevision` (monotonic write counter) · `optparse` (line parser
 localhost), `To-do` (input placeholder), `copy as json` / `raw array` /
 `nested object tree` (the two `#copy-onpage-todos-as-json` buttons: primary + secondary text),
 `page edit` / `commit` (localhost info-pill labels),
-`deployed` (live deploy-stamp pill label),
+`deployed` (live last-deployment-timestamp pill label),
 `on branch` (info-pill label, shown both localhost and live; branch name prefixed with `#`). All stamp times are
 US Eastern (`America/New_York`), formatted as `h:mmam/pm on Mon D` (e.g., `9:52am on Jul 8`).
 
@@ -102,13 +102,13 @@ US Eastern (`America/New_York`), formatted as `h:mmam/pm on Mon D` (e.g., `9:52a
 `#right-outer` are the flanking `.outer-page`s (desktop-only). A `.pill-container`
 is a panel pinned in an outer page; both live in `#left-outer` — `#dev-helpers`
 (top) holds `#copy-onpage-todos-as-json` (two `.pill.button-pill` action
-buttons); `#deploy-stamp` (bottom) holds the versioning line and its
+buttons); `#last-deployment-timestamp` (bottom) holds the versioning line and its
 `.pill.info-pill`s. Every pill shares the `.pill` base and carries a
 `.pill-text-primary` label + `.pill-text-secondary` bronze value (the secondary
 wraps to its own line on overflow).
 
 **Files.** `scripts/generate-build-timestamp.mjs` (build-timestamp generator),
-`src/deploy-stamp.js` (its generated output, imported by `src/index.js`),
+`src/last-deployment-timestamp.js` (its generated output, imported by `src/index.js`),
 `src/scratchpad-pencil-icon.svg` (favicon source, inlined as a data-URI),
 `personality/quotes.json` (list of `{ quoteText, quoteAuthor }` POJOs, bundled
 
@@ -124,8 +124,8 @@ enum, for when real node types arrive.
 - Cloudflare Worker; config in `wrangler.toml`. Entry is `src/index.js`
   (approved); `main` points there. DO binding `TREE` → class `TodoTree` is
   wired (binding + `v1` migration in `wrangler.toml`).
-- **Build stamp.** `npm run dev` / `npm run deploy` run `pre` hooks that
-  regenerate `src/deploy-stamp.js` via `scripts/generate-build-timestamp.mjs`
+- **Last deployment timestamp.** `npm run dev` / `npm run deploy` run `pre` hooks that
+  regenerate `src/last-deployment-timestamp.js` via `scripts/generate-build-timestamp.mjs`
   (dev = newest `src/` edit + last commit; deploy = deploy time). Deploy with
   `npm run deploy`, not raw `wrangler deploy`, or the stamp goes stale. The page
   decides live-vs-localhost **client-side** (`window.location.hostname`); the
@@ -135,7 +135,7 @@ enum, for when real node types arrive.
   Works from any git branch — `wrangler` bundles the working tree, not a branch.
 - `.svg` files import as text (Text rule in `wrangler.toml`) for the inlined
   favicon.
-- Not gitignored: source, config, `package-lock.json`, `src/deploy-stamp.js`
+- Not gitignored: source, config, `package-lock.json`, `src/last-deployment-timestamp.js`
   (tracked; overwritten each build). Ignored: `node_modules/`, `.wrangler/`,
   `.dev.vars`.
 - Commit/push only when asked.

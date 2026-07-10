@@ -11,12 +11,12 @@ export { TodoTree } from './tree.js';
 // page head as a data-URI favicon — no extra route, so routing stays 404-only.
 import iconSvg from './scratchpad-pencil-icon.svg';
 
-// Nomenclature reference page — served at /nomenclature-hierarchy.
-import nomenclatureHtml from './nomenclature.html';
+// Machine-names reference page — served at /machine-names.
+import machineNamesHtml from './machine-names.html';
 
 // Build-time values (deploy time; or latest src edit + last commit for dev),
-// written by scripts/generate-build-timestamp.mjs. Rendered into #deploy-stamp.
-import { buildStamp } from './deploy-stamp.js';
+// written by scripts/generate-build-timestamp.mjs. Rendered into the info-pills.
+import { lastDeploymentTimestamp } from './last-deployment-timestamp.js';
 
 // Personality quotes ({ quoteText, quoteAuthor } POJOs). Bundled at build time
 // and inlined into the page as QUOTES; used to seed a fresh todo when the
@@ -36,8 +36,8 @@ export default {
     if (pathname === '/scratchpad') {
       return page();
     }
-    if (pathname === '/nomenclature-hierarchy') {
-      return nomenclature();
+    if (pathname === '/machine-names') {
+      return machineNames();
     }
     return new Response('not found', { status: 404 });
   },
@@ -48,8 +48,8 @@ function treeStub(env) {
   return env.TREE.get(env.TREE.idFromName('root'));
 }
 
-function nomenclature() {
-  return new Response(nomenclatureHtml, {
+function machineNames() {
+  return new Response(machineNamesHtml, {
     headers: { 'content-type': 'text/html; charset=utf-8' },
   });
 }
@@ -121,7 +121,7 @@ input::placeholder{color:#bcad90}
 // module scope and isn't carried into the page. Shim it (no-op) so the
 // serialized body resolves it here.
 var __name = function (x) { return x; };
-var BUILD_STAMP = ${JSON.stringify(buildStamp)};
+var LAST_DEPLOYMENT_TIMESTAMP = ${JSON.stringify(lastDeploymentTimestamp)};
 var QUOTES = ${JSON.stringify(quotes)};
 ;(${clientMain.toString()})();
 </script>
@@ -618,14 +618,15 @@ function clientMain() {
         }));
     })(null, 0);
   }
-  // ── Deploy stamp: the info-box ships all four info-pills in the page; this
-  // fills each one's secondary text by id and drops the pills that don't apply.
-  // Live keeps #deployed-timestamp, localhost keeps #page-edit-timestamp and
-  // #commit-timestamp; #on-branch-branchname survives both. Decided client-side
-  // by hostname (the dev-server proxy rewrites the server-side one). BUILD_STAMP
-  // is inlined into the page. ──
-  (function renderDeployStamp() {
-    const s = BUILD_STAMP;
+  // ── Last deployment timestamp: the info-box ships all four info-pills in
+  // the page; this fills each one's secondary text by id and drops the pills
+  // that don't apply. Live keeps #deployed-timestamp, localhost keeps
+  // #page-edit-timestamp and #commit-timestamp; #on-branch-branchname
+  // survives both. Decided client-side by hostname (the dev-server proxy
+  // rewrites the server-side one). LAST_DEPLOYMENT_TIMESTAMP is inlined into
+  // the page. ──
+  (function renderLastDeploymentTimestamp() {
+    const s = LAST_DEPLOYMENT_TIMESTAMP;
     // Format "2026-07-08" + "09:52:36" → "9:52am on Jul 8"
     function formatStampTime(date, time) {
       const [y, m, d] = date.split('-');
@@ -673,8 +674,8 @@ function clientMain() {
     }
   })();
 
-  // Tab title mirrors the deploy stamp's hostname check: live is "Scratchpad",
-  // localhost is tagged so the two tabs are distinguishable.
+  // Tab title mirrors the last-deployment-timestamp's hostname check: live is
+  // "Scratchpad", localhost is tagged so the two tabs are distinguishable.
   document.title =
     window.location.hostname === 'localhost'
       ? 'Scratchpad — localhost'
