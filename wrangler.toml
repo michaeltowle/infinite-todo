@@ -24,8 +24,9 @@ class_name = "TodoTree"
 tag = "v1"
 new_sqlite_classes = ["TodoTree"]
 
-# Let *.svg files be imported as text strings (used to inline the tab icon as a
-# data-URI favicon in src/index.js).
+# Let *.svg and *.html files be imported as text strings (used to inline the
+# tab icon as a data-URI favicon, and to serve static HTML pages like
+# nomenclature-hierarchy).
 [[rules]]
 type = "Text"
-globs = ["**/*.svg"]
+globs = ["**/*.svg", "**/*.html"]

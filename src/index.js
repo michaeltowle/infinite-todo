@@ -11,6 +11,9 @@ export { TodoTree } from './tree.js';
 // page head as a data-URI favicon — no extra route, so routing stays 404-only.
 import iconSvg from './scratchpad-pencil-icon.svg';
 
+// Nomenclature reference page — served at /nomenclature-hierarchy.
+import nomenclatureHtml from './nomenclature.html';
+
 // Build-time values (deploy time; or latest src edit + last commit for dev),
 // written by scripts/generate-build-timestamp.mjs. Rendered into #deploy-stamp.
 import { buildStamp } from './deploy-stamp.js';
@@ -33,6 +36,9 @@ export default {
     if (pathname === '/scratchpad') {
       return page();
     }
+    if (pathname === '/nomenclature-hierarchy') {
+      return nomenclature();
+    }
     return new Response('not found', { status: 404 });
   },
 };
@@ -40,6 +46,12 @@ export default {
 // The single global TodoTree instance. One user, one document → one DO.
 function treeStub(env) {
   return env.TREE.get(env.TREE.idFromName('root'));
+}
+
+function nomenclature() {
+  return new Response(nomenclatureHtml, {
+    headers: { 'content-type': 'text/html; charset=utf-8' },
+  });
 }
 
 function page() {
