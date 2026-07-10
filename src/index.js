@@ -56,41 +56,52 @@ function page() {
 html,body{margin:0;padding:0;background:#f1ebdf;scrollbar-width:none}
 html::-webkit-scrollbar,body::-webkit-scrollbar{display:none;width:0;height:0}
 .scroll{min-height:100vh;width:100%;display:flex;justify-content:center;background:#f1ebdf}
-.outer-page{flex:1 1 0;min-width:0}
-@media (max-width:1279px){.outer-page{display:none}}
-#inner-page{width:var(--page-w);max-width:100%;background:#faf5ea;border-left:1px solid rgba(120,90,40,.11);border-right:1px solid rgba(120,90,40,.11);padding:92px 120px 320px;box-sizing:border-box}
+/* The two .double-sidebar flankers stay pure gutters — they size and center
+   #todo-container and hold no content. #mono-sidebar carries both
+   pill-containers at every width, so the pills keep a single home in the DOM. */
+.sidebar{flex:1 1 0;min-width:0}
+@media (max-width:1279px){.double-sidebar{display:none}}
+#todo-container{width:var(--page-w);max-width:100%;background:#faf5ea;border-left:1px solid rgba(120,90,40,.11);border-right:1px solid rgba(120,90,40,.11);padding:92px 120px 320px;box-sizing:border-box}
 @media (max-width:1400px){:root{--page-w:900px}}
-@media (max-width:600px){#inner-page{padding:32px 16px 320px}}
-.row{display:flex;align-items:flex-start;gap:12px;padding:3px 0}
-.cb{flex:none;width:18px;height:18px;border-radius:4px;border:1.5px solid #cbb894;background:transparent;margin-top:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;color:#fff;font-size:12px;line-height:1}
-.cb.done{border-color:#9c7a3c;background:#9c7a3c}
-input[data-id]{flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:16px;line-height:1.7;color:#43392a;padding:0}
-input[data-done="1"]{text-decoration:line-through;opacity:.5}
+@media (max-width:600px){#todo-container{padding:32px 16px 320px}}
+.todo-row{display:flex;align-items:flex-start;gap:12px;padding:3px 0}
+.todo-checkbox{flex:none;width:18px;height:18px;border-radius:4px;border:1.5px solid #cbb894;background:transparent;margin-top:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;color:#fff;font-size:12px;line-height:1}
+.todo-checkbox.checked{border-color:#9c7a3c;background:#9c7a3c}
+.todo-row input{flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:16px;line-height:1.7;color:#43392a;padding:0}
+.todo-row[data-checked="1"] input{text-decoration:line-through;opacity:.5}
 input::placeholder{color:#bcad90}
-.pill-container{position:fixed;left:5px;width:calc((100vw - var(--page-w)) / 2 - 10px);box-sizing:border-box;padding:12px;background:#faf5ea;border:1px solid rgba(120,90,40,.11);border-radius:8px;z-index:10;display:flex;flex-direction:column;gap:6px;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;line-height:1.5;color:#333}
-#dev-helpers{top:5px}
-#deploy-stamp{bottom:5px}
-#copy-onpage-todos-as-json{display:contents}
+/* Pinned over the left gutter while the flankers show; a bottom bar once they
+   drop out; hidden on phones. position:fixed lifts it out of the flex row, so
+   the flankers still center #todo-container. */
+#mono-sidebar{position:fixed;z-index:10;left:5px;top:5px;bottom:5px;width:calc((100vw - var(--page-w)) / 2 - 10px);display:flex;flex-direction:column;justify-content:space-between;gap:6px}
+@media (max-width:1279px){#mono-sidebar{left:5px;right:5px;top:auto;bottom:5px;width:auto;flex-direction:row;flex-wrap:wrap;align-items:flex-end;justify-content:center}}
+@media (max-width:600px){#mono-sidebar{display:none}}
+.pill-container{box-sizing:border-box;padding:12px;background:#faf5ea;border:1px solid rgba(120,90,40,.11);border-radius:8px;display:flex;flex-direction:column;gap:6px;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;line-height:1.5;color:#333}
+@media (max-width:1279px){.pill-container{flex-direction:row;flex-wrap:wrap;align-items:center}}
 .pill{display:flex;flex-wrap:wrap;gap:5px;align-items:baseline;background:transparent;border-radius:3px;padding:4px 7px}
-.button-pill{border:none;margin:0;font:inherit;text-align:left;cursor:pointer;color:inherit;transition:background .12s}
-.button-pill:hover{background:#f1e7d3}
+.action-pill{border:none;margin:0;font:inherit;text-align:left;cursor:pointer;color:inherit;transition:background .12s}
+.action-pill:hover{background:#f1e7d3}
 .pill-text-primary{color:#333;white-space:nowrap}
 .pill-text-secondary{color:#b07a30;white-space:nowrap}
 </style>
 </head>
 <body>
 <div class="scroll" id="scroll">
-<div class="outer-page" id="left-outer">
-<div class="pill-container" id="dev-helpers">
-<div id="copy-onpage-todos-as-json">
-<button class="pill button-pill" type="button" data-shape="raw"><span class="pill-text-primary">copy as json</span> <span class="pill-text-secondary">raw array</span></button>
-<button class="pill button-pill" type="button" data-shape="nested"><span class="pill-text-primary">copy as json</span> <span class="pill-text-secondary">nested object tree</span></button>
+<div class="sidebar double-sidebar" id="left-sidebar"></div>
+<div id="todo-container"></div>
+<div class="sidebar double-sidebar" id="right-sidebar"></div>
+<div class="sidebar mono-sidebar" id="mono-sidebar">
+<div class="pill-container action-box">
+<button class="pill action-pill" type="button" id="copy-as-json-raw-array"><span class="pill-text-primary">copy as json</span> <span class="pill-text-secondary">raw array</span></button>
+<button class="pill action-pill" type="button" id="copy-as-json-nested-object-tree"><span class="pill-text-primary">copy as json</span> <span class="pill-text-secondary">nested object tree</span></button>
+</div>
+<div class="pill-container info-box">
+<div class="pill info-pill" id="deployed-timestamp"><span class="pill-text-primary">deployed</span> <span class="pill-text-secondary"></span></div>
+<div class="pill info-pill" id="page-edit-timestamp"><span class="pill-text-primary">page edit</span> <span class="pill-text-secondary"></span></div>
+<div class="pill info-pill" id="commit-timestamp"><span class="pill-text-primary">commit</span> <span class="pill-text-secondary"></span></div>
+<div class="pill info-pill" id="on-branch-branchname"><span class="pill-text-primary">on branch</span> <span class="pill-text-secondary"></span></div>
 </div>
 </div>
-<div class="pill-container" id="deploy-stamp"></div>
-</div>
-<div id="inner-page"><div id="todo-scratchpad"></div></div>
-<div class="outer-page" id="right-outer"></div>
 </div>
 <script>
 // clientMain is serialized from the Worker bundle via toString(); wrangler's
@@ -120,7 +131,7 @@ function clientMain() {
   const FONT = "16px -apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif";
   const DEBOUNCE_MS = 400;
 
-  const list = document.getElementById('todo-scratchpad');
+  const list = document.getElementById('todo-container');
   const scroll = document.getElementById('scroll');
 
   // ── Data layer: client mirror of the DO ──
@@ -269,17 +280,17 @@ function clientMain() {
     for (const line of currentLines) {
       const n = line.node;
       const row = document.createElement('div');
-      row.className = 'row';
+      row.className = 'todo-row';
+      row.dataset.checked = n.checkbox ? '1' : '0';
       row.style.marginLeft = line.depth * INDENT + 'px';
 
       const btn = document.createElement('button');
-      btn.className = n.checkbox ? 'cb done' : 'cb';
+      btn.className = n.checkbox ? 'todo-checkbox checked' : 'todo-checkbox';
       btn.dataset.id = n.id;
       btn.textContent = n.checkbox ? '✓' : '';
 
       const input = document.createElement('input');
       input.dataset.id = n.id;
-      input.dataset.done = n.checkbox ? '1' : '0';
       input.value = n.keyboardText || '';
       input.placeholder = 'To-do';
 
@@ -390,10 +401,10 @@ function clientMain() {
       render();
       return;
     }
-    btn.className = val ? 'cb done' : 'cb';
+    btn.className = val ? 'todo-checkbox checked' : 'todo-checkbox';
     btn.textContent = val ? '✓' : '';
-    const input = list.querySelector('input[data-id="' + id + '"]');
-    if (input) input.dataset.done = val ? '1' : '0';
+    const row = btn.closest('.todo-row');
+    if (row) row.dataset.checked = val ? '1' : '0';
   }
 
   function onEnter(line, input) {
@@ -573,11 +584,11 @@ function clientMain() {
   });
   scroll.addEventListener('mousedown', blankFocus);
 
-  // ── Dev helper: copy the on-page todos as JSON (non-mobile pill) ──
-  // Both halves cover exactly the nodes visible on the page — completed trees
-  // that dropped out (see walk()) are excluded. Left half → the flat nodes in
-  // document order; right half → the same nodes nested under their parents in
-  // sibling order.
+  // ── Dev helper: the action-box's two action-pills copy the on-page todos as
+  // JSON. Both cover exactly the nodes visible on the page — completed trees
+  // that dropped out (see walk()) are excluded. #copy-as-json-raw-array → the
+  // flat nodes in document order; #copy-as-json-nested-object-tree → the same
+  // nodes nested under their parents in sibling order.
   function rawNodes() {
     return walk().map((l) => l.node);
   }
@@ -595,13 +606,13 @@ function clientMain() {
         }));
     })(null, 0);
   }
-  // ── Deploy stamp: live shows the deploy pill, localhost shows the page-edit
-  // and commit pills; both show the on-branch pill. Decided client-side by
-  // hostname (the dev-server proxy rewrites the server-side one). BUILD_STAMP
+  // ── Deploy stamp: the info-box ships all four info-pills in the page; this
+  // fills each one's secondary text by id and drops the pills that don't apply.
+  // Live keeps #deployed-timestamp, localhost keeps #page-edit-timestamp and
+  // #commit-timestamp; #on-branch-branchname survives both. Decided client-side
+  // by hostname (the dev-server proxy rewrites the server-side one). BUILD_STAMP
   // is inlined into the page. ──
   (function renderDeployStamp() {
-    const box = document.getElementById('deploy-stamp');
-    if (!box) return;
     const s = BUILD_STAMP;
     // Format "2026-07-08" + "09:52:36" → "9:52am on Jul 8"
     function formatStampTime(date, time) {
@@ -628,28 +639,25 @@ function clientMain() {
       const dNum = parseInt(d, 10);
       return h12 + ':' + min + ampm + ' on ' + mName + ' ' + dNum;
     }
-    const branchPill =
-      '<div class="pill info-pill"><span class="pill-text-primary">on branch</span> <span class="pill-text-secondary">#' +
-      s.branch +
-      '</span></div>';
+    function fillPill(id, value) {
+      const pill = document.getElementById(id);
+      if (!pill) return;
+      const slot = pill.querySelector('.pill-text-secondary');
+      if (slot) slot.textContent = value;
+    }
+    function dropPill(id) {
+      const pill = document.getElementById(id);
+      if (pill) pill.remove();
+    }
+    fillPill('on-branch-branchname', '#' + s.branch);
     if (window.location.hostname === 'localhost') {
-      const pageEditTime = formatStampTime(s.pageEdit.date, s.pageEdit.time);
-      const commitTime = formatStampTime(s.commit.date, s.commit.time);
-      box.innerHTML =
-        '<div class="pill info-pill"><span class="pill-text-primary">page edit</span> <span class="pill-text-secondary">' +
-        pageEditTime +
-        '</span></div>' +
-        '<div class="pill info-pill"><span class="pill-text-primary">commit</span> <span class="pill-text-secondary">' +
-        commitTime +
-        '</span></div>' +
-        branchPill;
+      fillPill('page-edit-timestamp', formatStampTime(s.pageEdit.date, s.pageEdit.time));
+      fillPill('commit-timestamp', formatStampTime(s.commit.date, s.commit.time));
+      dropPill('deployed-timestamp');
     } else {
-      const deployTime = formatStampTime(s.deploy.date, s.deploy.time);
-      box.innerHTML =
-        '<div class="pill info-pill"><span class="pill-text-primary">deployed</span> <span class="pill-text-secondary">' +
-        deployTime +
-        '</span></div>' +
-        branchPill;
+      fillPill('deployed-timestamp', formatStampTime(s.deploy.date, s.deploy.time));
+      dropPill('page-edit-timestamp');
+      dropPill('commit-timestamp');
     }
   })();
 
@@ -660,16 +668,16 @@ function clientMain() {
       ? 'Scratchpad — localhost'
       : 'Scratchpad';
 
-  const devPill = document.getElementById('copy-onpage-todos-as-json');
-  if (devPill) {
-    devPill.addEventListener('click', (e) => {
-      const half = e.target.closest('[data-shape]');
-      if (!half) return;
-      const data = half.dataset.shape === 'nested' ? nestedTree() : rawNodes();
-      const text = JSON.stringify(data, null, 2);
-      if (navigator.clipboard) navigator.clipboard.writeText(text);
-    });
+  function copyAsJSON(data) {
+    const text = JSON.stringify(data, null, 2);
+    if (navigator.clipboard) navigator.clipboard.writeText(text);
   }
+  function onActionPill(id, build) {
+    const pill = document.getElementById(id);
+    if (pill) pill.addEventListener('click', () => copyAsJSON(build()));
+  }
+  onActionPill('copy-as-json-raw-array', rawNodes);
+  onActionPill('copy-as-json-nested-object-tree', nestedTree);
 
   // ── Auto-seed: keep the scratchpad from becoming a dead end ──
   // Compose a todo line from a quote (currently a one-item list). Format

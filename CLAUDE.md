@@ -11,26 +11,14 @@ Operating instructions for Claude on this repo. Read before acting.
    name is needed I **propose 3–5 candidates** (recommended pick first,
    XML-native option leading) — I don't ask open-endedly and I don't adopt
    one myself; I use only sanctioned names (see Approved names).
-   **Exempt — name freely:** internal helper functions, local variables,
+   **Exempt — name semi-freely:** internal helper functions, local variables,
    private closures, and other pure implementation details not part of the
-   data model, wire contract, or UI.
+   data model, wire contract, or UI. By "semi-freely," we mean that if e.g. an internal variable name refers to a thing with a pre-approved name, the variable should follow that convention.
 2. **No UI elements or copy without approval.** I may not add, remove, or
    reword any UI element or any user-facing text/copy without the user's
    say-so. This includes labels, placeholders, headings, button text,
    messages, and microcopy.
-
-If a task can't proceed without a new name or new UI/copy, surface that and
-wait — don't guess.
-
-## Naming conventions
-
-- **Prefer XML / XPath / DOM terminology** wherever a concept has an
-  established equivalent there — the data model is an XML-ish document tree,
-  so this recurs. When proposing names (see rule 1), lead with the
-  XML-native option and cite its provenance.
-- Adopted so far: `position` (XPath `position()` — sibling-relative),
-  `documentPosition` (DOM `compareDocumentPosition` — absolute order),
-  `depthLevel` (XSLT `<xsl:number level>` — nesting depth).
+3. **No new routes without approval.**
 
 ## What this is
 
