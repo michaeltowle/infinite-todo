@@ -11,8 +11,17 @@ Golden Rules
 
 4. No UI changes without Mike's approval.
 
-Notes
+5. Within the test suite, name functions what you want but document each test purpose in comment above the test itself and type the date yyyy-mm-dd each time you add a test. 
+
+Other
 
 1. Because Mike is the only user, he will sometiimes make atypical choices, esp in design, but also e.g. in deploying feature branches rather than main.
 
 
+Testing
+
+1. When adding tests, split them into different files by area. Provide a comment over each test as to its purpose, and include in the comment the add-date of the test in yyyy-mm-dd
+
+Commands
+
+1. `cpd` means commit, push, and deploy. 

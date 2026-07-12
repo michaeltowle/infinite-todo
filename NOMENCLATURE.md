@@ -32,3 +32,12 @@ AREA: "TODO" terminology
 
 - "todo" : a single row of text with a checkbox and possibly other attributes, such as tags. should always be spelled without a hyphen, whether in code or css. casing: "Todo."
 - "checked"/"unchecked" : our preferred terms for the boolean todo-checkbox value. do not use "done", "not done", "completed", etc.
+- keyboardText
+- treePlacement - parent_id plus position for updating node placement
+
+AREA: Persistence
+- create
+- edit
+- delete
+- outbox - ordered, retrying outbox solves the issue of an edit arriving at the DO before the create for the same todo-node
+
