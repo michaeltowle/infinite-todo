@@ -230,27 +230,47 @@ export function clientMain() {
     ctx.font = FONT;
     return ctx;
   }
-  // Preserve the caret's visual x-position when moving between lines of
-  // differing indent (canvas text metrics). Ported from the mock.
+  // The caret's visual x-position: the line's indent plus the width of the text
+  // sitting to the left of the caret (canvas text metrics).
+  function caretX(line: Line, col: number) {
+    const text = nodesById.get(line.node.id)?.keyboardText || '';
+    return (
+      line.depth * INDENT + measureCtx().measureText(text.slice(0, col)).width
+    );
+  }
+
+  // The x the caret is *trying* to hold while arrowing, in caretX() coordinates.
+  // Held across a run of consecutive vertical arrows, so a line too short to reach
+  // it clamps where the caret lands without narrowing the rest of the run — the
+  // caret drops back to the held x on the next line long enough to take it. Any
+  // other cursor movement ends the run and clears this (see the keydown, input and
+  // mousedown listeners); null means "no run in progress".
+  let desiredX: number | null = null;
+
+  // Move the caret to `to`, at whichever column sits closest to the x being held.
+  // With no run in progress that x is the caret's current one, which is what keeps
+  // the caret in the same place *on screen* across lines of differing indent.
   function moveCaret(from: Line, to: Line, col: number) {
     const ctx = measureCtx();
-    const fromText = nodesById.get(from.node.id)?.keyboardText || '';
+    const targetX = desiredX ?? caretX(from, col);
     const toText = nodesById.get(to.node.id)?.keyboardText || '';
-    const srcW = ctx.measureText(fromText.slice(0, col)).width;
-    const targetW = srcW + (from.depth - to.depth) * INDENT;
     let best = 0;
     let bestDiff = Infinity;
     for (let i = 0; i <= toText.length; i++) {
-      const d = Math.abs(ctx.measureText(toText.slice(0, i)).width - targetW);
+      const x =
+        to.depth * INDENT + ctx.measureText(toText.slice(0, i)).width;
+      const d = Math.abs(x - targetX);
       if (d < bestDiff) {
         bestDiff = d;
         best = i;
       }
     }
+    desiredX = targetX; // the run keeps aiming at the x it started with
     focusLine(to.node.id, best);
   }
   function blankFocus(e: MouseEvent) {
     const t = e.target as HTMLElement;
+    desiredX = null; // a mousedown places the caret by hand, ending any arrow run
     if (t.tagName === 'INPUT' || t.tagName === 'BUTTON') return;
     const inputs = list.querySelectorAll<HTMLInputElement>('input[data-id]');
     const last = inputs[inputs.length - 1];
@@ -445,9 +465,12 @@ export function clientMain() {
     const j = dir === 'up' ? i - 1 : i + 1;
     if (j < 0 || j >= currentLines.length) {
       // No line in that direction: snap the caret to the far edge of this line
-      // (ArrowDown off the last line → end; ArrowUp off the first → start).
+      // (ArrowDown off the last line → end; ArrowUp off the first → start). The
+      // caret really did move, so the run now aims at where it landed rather than
+      // at the x it was holding on the way in.
       const col = dir === 'down' ? input.value.length : 0;
       input.setSelectionRange(col, col);
+      desiredX = caretX(line, col);
       return;
     }
     moveCaret(currentLines[i], currentLines[j], input.selectionStart ?? 0);
@@ -457,6 +480,7 @@ export function clientMain() {
   list.addEventListener('input', (e) => {
     const t = e.target as HTMLInputElement;
     if (t.dataset && t.dataset.id && t.tagName === 'INPUT') {
+      desiredX = null; // paste and IME move the caret without ever firing keydown
       const line = lineOf(t.dataset.id);
       if (line) onInput(line.node, t);
     }
@@ -466,6 +490,10 @@ export function clientMain() {
     if (!(t.dataset && t.dataset.id && t.tagName === 'INPUT')) return;
     const line = lineOf(t.dataset.id);
     if (!line) return;
+    // Only a run of vertical arrows holds a desired x; every other key — a typed
+    // character, a horizontal arrow, Home/End, a structural command — moves the
+    // caret on its own terms and ends the run.
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') desiredX = null;
     if (e.key === 'Enter') {
       e.preventDefault();
       onEnter(line, t);

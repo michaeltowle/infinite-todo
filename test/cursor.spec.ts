@@ -262,14 +262,14 @@ test('arrows traverse nested children in document order', async ({ page, request
 });
 
 // 2026-07-12
-// KNOWN FAILURE — asserts the behaviour we WANT, not the behaviour we have.
 // Every real editor keeps a "desired column": pass through a short line and the
-// caret returns to the original column on the next long one. onArrow has no such
-// memory — it re-measures from the caret's *current* position each time, so a short
-// line permanently narrows the column. test.fail() keeps the suite green while this
-// is unfixed, and will fail loudly the moment someone fixes it (so delete the
-// test.fail() then).
-test.fail('consecutive arrows restore the desired column after passing a short line', async ({
+// caret returns to the original column on the next long one. onArrow holds one (as
+// a desired *x*, since it measures in pixels to survive indent changes) for as long
+// as the arrows keep coming, so a short line clamps where the caret lands without
+// narrowing the rest of the run. Was a KNOWN FAILURE — onArrow used to re-measure
+// from the caret's current position each time, letting one short line narrow the
+// column permanently.
+test('consecutive arrows restore the desired column after passing a short line', async ({
   page,
   request,
 }) => {
@@ -288,7 +288,7 @@ test.fail('consecutive arrows restore the desired column after passing a short l
 
   const cur = await cursor(page);
   expect(cur.id).toBe('c');
-  expect(cur.start).toBeGreaterThanOrEqual(10); // today it lands around column 2
+  expect(cur.start).toBeGreaterThanOrEqual(10); // before the fix it landed around column 2
 });
 
 // ─── Focus placement ─────────────────────────────────────────────────────────
