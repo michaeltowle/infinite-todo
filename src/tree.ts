@@ -25,49 +25,11 @@ type IncomingMutation = Partial<Record<(typeof MUTABLE_FIELDS)[number], unknown>
   id?: unknown;
 };
 
-// A node as it may sit in storage *before* the migration below has run. Nodes
-// written prior to the checkbox→checked rename still carry `checkbox`.
-type LegacyTodo = Omit<Todo, "checked"> & {
-  checked?: boolean;
-  checkbox?: boolean;
-};
-
 export class TodoTree {
   storage: DurableObjectStorage;
 
   constructor(state: DurableObjectState) {
     this.storage = state.storage;
-    // Migrate before the DO serves anything: blockConcurrencyWhile holds every
-    // inbound request until this resolves, so no read can ever see a half-migrated
-    // tree, and no concurrent write can race it.
-    state.blockConcurrencyWhile(() => this.renameCheckboxToChecked());
-  }
-
-  // One-time data migration: rewrite every node still storing the boolean under
-  // `checkbox` so it stores it under `checked`, dropping the dead key. Idempotent
-  // and effectively free once storage is clean — one list(), zero writes — so it
-  // is safe to leave in place. Logs either way, so `wrangler tail` shows what a
-  // given DO wake-up actually did.
-  //
-  // Once the live DO has reported "already clean", this method and LegacyTodo can
-  // be deleted outright.
-  async renameCheckboxToChecked(): Promise<number> {
-    const stored = await this.storage.list<LegacyTodo>({ prefix: ELEMENT_PREFIX });
-
-    let rewritten = 0;
-    for (const [key, node] of stored) {
-      if (!("checkbox" in node)) continue;
-      const { checkbox, ...rest } = node;
-      await this.storage.put(key, { ...rest, checked: node.checked ?? checkbox ?? false });
-      rewritten++;
-    }
-
-    console.log(
-      rewritten > 0
-        ? `[migration] checkbox→checked: rewrote ${rewritten} of ${stored.size} node(s)`
-        : `[migration] checkbox→checked: already clean (${stored.size} node(s), 0 rewritten)`,
-    );
-    return rewritten;
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -160,8 +122,7 @@ export class TodoTree {
     }
   }
 
-  // All stored nodes as a Map(key → node). Safe to type as Todo: the constructor's
-  // migration has already run, so nothing in storage still carries `checkbox`.
+  // All stored nodes as a Map(key → node).
   // NOTE: single list() call — fine at scratchpad scale (single-digit MB). If
   // the tree grows past storage.list()'s return cap, paginate with a cursor.
   allNodes(): Promise<Map<string, Todo>> {
