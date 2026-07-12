@@ -1,0 +1,11 @@
+// The browser client (serialized into the page via toString()). DOM globals, NO
+// Cloudflare types — loading both would collide on Response, fetch, WebSocket, …
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "outDir": ".tsbuild/client"
+  },
+  "include": ["src/client-main.ts", "src/shared-types.d.ts"]
+}

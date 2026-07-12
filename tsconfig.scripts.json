@@ -1,0 +1,14 @@
+// The build scripts: plain Node programs, run via Node's native type stripping.
+// Neither Worker nor browser — its own project so it gets @types/node and
+// nothing else.
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
+    "outDir": ".tsbuild/scripts"
+  },
+  "include": ["scripts/**/*.mts"]
+}

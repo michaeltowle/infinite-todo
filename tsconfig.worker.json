@@ -1,0 +1,21 @@
+// The Worker: entry, Durable Object, generated stamp. Cloudflare globals, NO DOM.
+// It references the client project rather than compiling it, so the client's DOM
+// globals never leak in here (and vice versa) — that separation is the whole
+// reason this repo has more than one tsconfig.
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": ["@cloudflare/workers-types"],
+    "outDir": ".tsbuild/worker"
+  },
+  "references": [{ "path": "./tsconfig.client.json" }],
+  "include": [
+    "src/index.ts",
+    "src/tree.ts",
+    "src/last-deployment-timestamp.ts",
+    "src/shared-types.d.ts",
+    "src/worker-types.d.ts",
+    "personality/quotes.json"
+  ]
+}

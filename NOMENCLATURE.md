@@ -11,7 +11,7 @@ Note: In this area, nomenclature is given as css classes, but wherever these wor
 - pill.action-pill
 - pill.info-pill
 - todo-row
-- todo-row.todo-checkbox
+- todo-row.todo-checked
 - todo-row.data-checked
 
 SUBAREA: UI Pills

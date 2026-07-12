@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+
+    // Imports carry explicit .ts extensions, as the .js ones did before. esbuild
+    // (wrangler) and Node's type stripping both resolve them; tsc allows it only
+    // when it isn't emitting JS, which is exactly our case (emitDeclarationOnly).
+    "allowImportingTsExtensions": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // wrangler's esbuild bundles the .ts sources directly, so tsc never
+    // produces the shipped output — it only typechecks. `composite` (required
+    // for project references) forbids `noEmit`, so emit declarations only, into
+    // a gitignored dir. Nothing in .tsbuild/ is deployed.
+    "composite": true,
+    "emitDeclarationOnly": true,
+    "rootDir": "."
+  }
+}

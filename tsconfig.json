@@ -1,0 +1,15 @@
+// Solution file — builds nothing itself, just points at the three real projects
+// so `tsc --build` (npm run typecheck) checks them all, in dependency order.
+//
+// They are separate projects because their global type environments are mutually
+// exclusive: the Worker needs @cloudflare/workers-types, the client needs the DOM
+// lib, and the two collide (both declare Response, fetch, WebSocket, …). Scripts
+// are Node. Editors pick the right one per file automatically.
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.worker.json" },
+    { "path": "./tsconfig.client.json" },
+    { "path": "./tsconfig.scripts.json" }
+  ]
+}

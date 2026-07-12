@@ -3,12 +3,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "node scripts/generate-deployment-timestamp.mjs dev",
+    "typecheck": "tsc --build",
+    "predev": "node scripts/generate-deployment-timestamp.mts dev",
     "dev": "wrangler dev",
-    "predeploy": "node scripts/generate-deployment-timestamp.mjs deploy",
+    "predeploy": "node scripts/generate-deployment-timestamp.mts deploy && npm run typecheck",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260712.1",
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2",
     "wrangler": "^4"
   }
 }

@@ -1,161 +1,45 @@
-// x.michaeltowle.io — the scratchpad Worker.
-//
-// Only /scratchpad and its API resolve; every other path is a real 404 (no
-// catch-all shell). API requests are forwarded to the one TodoTree Durable
-// Object, which owns all state. GET /scratchpad serves the editor page — the
-// client (clientMain, below) is serialized into the page via toString().
-
-export { TodoTree } from './tree.js';
-
-// Imported as text (see the Text rule in wrangler.toml) and inlined into the
-// page head as a data-URI favicon — no extra route, so routing stays 404-only.
-import iconSvg from './scratchpad-pencil-icon.svg';
-
-// Machine-names reference page — served at /machine-names.
-import machineNamesHtml from './machine-names.html';
-
-// Build-time values (deploy time; or latest src edit + last commit for dev),
-// written by scripts/generate-deployment-timestamp.mjs. Rendered into the info-pills.
-import { lastDeploymentTimestamp } from './last-deployment-timestamp.js';
-
-// Personality quotes ({ quoteText, quoteAuthor } POJOs). Bundled at build time
-// and inlined into the page as QUOTES; used to seed a fresh todo when the
-// scratchpad empties out.
-import quotes from '../personality/quotes.json';
-
-const API_PATHS = new Set(['/scratchpad/tree', '/scratchpad/mutations']);
-
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    const { pathname } = url;
-
-    if (API_PATHS.has(pathname)) {
-      return treeStub(env).fetch(request);
-    }
-    if (pathname === '/scratchpad') {
-      return page();
-    }
-    if (pathname === '/machine-names') {
-      return machineNames();
-    }
-    return new Response('not found', { status: 404 });
-  },
-};
-
-// The single global TodoTree instance. One user, one document → one DO.
-function treeStub(env) {
-  return env.TREE.get(env.TREE.idFromName('root'));
-}
-
-function machineNames() {
-  return new Response(machineNamesHtml, {
-    headers: { 'content-type': 'text/html; charset=utf-8' },
-  });
-}
-
-function page() {
-  const html = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,${encodeURIComponent(iconSvg)}">
-<title>Scratchpad</title>
-<style>
-:root{--page-w:1200px}
-html,body{margin:0;padding:0;background:#f1ebdf;scrollbar-width:none}
-html::-webkit-scrollbar,body::-webkit-scrollbar{display:none;width:0;height:0}
-.scroll{min-height:100vh;width:100%;display:flex;justify-content:center;background:#f1ebdf}
-/* The two .double-sidebar flankers stay pure gutters — they size and center
-   #todo-container and hold no content. #mono-sidebar carries both
-   pill-containers at every width, so the pills keep a single home in the DOM. */
-.sidebar{flex:1 1 0;min-width:0}
-@media (max-width:1279px){.double-sidebar{display:none}}
-#todo-container{width:var(--page-w);max-width:100%;background:#faf5ea;border-left:1px solid rgba(120,90,40,.11);border-right:1px solid rgba(120,90,40,.11);padding:92px 120px 320px;box-sizing:border-box}
-@media (max-width:1400px){:root{--page-w:900px}}
-@media (max-width:600px){#todo-container{padding:32px 16px 320px}}
-.todo-row{display:flex;align-items:flex-start;gap:12px;padding:3px 0}
-.todo-checkbox{flex:none;width:18px;height:18px;border-radius:4px;border:1.5px solid #cbb894;background:transparent;margin-top:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;color:#fff;font-size:12px;line-height:1}
-.todo-checkbox.checked{border-color:#9c7a3c;background:#9c7a3c}
-.todo-row input{flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:16px;line-height:1.7;color:#43392a;padding:0}
-.todo-row[data-checked="1"] input{text-decoration:line-through;opacity:.5}
-input::placeholder{color:#bcad90}
-/* Pinned over the left gutter while the flankers show; a bottom bar once they
-   drop out; hidden on phones. position:fixed lifts it out of the flex row, so
-   the flankers still center #todo-container. */
-#mono-sidebar{position:fixed;z-index:10;left:5px;top:5px;bottom:5px;width:calc((100vw - var(--page-w)) / 2 - 10px);display:flex;flex-direction:column;justify-content:space-between;gap:6px}
-@media (max-width:1279px){#mono-sidebar{left:5px;right:5px;top:auto;bottom:5px;width:auto;flex-direction:row;flex-wrap:wrap;align-items:flex-end;justify-content:center}}
-@media (max-width:600px){#mono-sidebar{display:none}}
-.pill-container{box-sizing:border-box;padding:12px;background:#faf5ea;border:1px solid rgba(120,90,40,.11);border-radius:8px;display:flex;flex-direction:column;gap:6px;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;line-height:1.5;color:#333}
-@media (max-width:1279px){.pill-container{flex-direction:row;flex-wrap:wrap;align-items:center}}
-.pill{display:flex;flex-wrap:wrap;gap:5px;align-items:baseline;background:transparent;border-radius:3px;padding:4px 7px}
-.action-pill{border:none;margin:0;font:inherit;text-align:left;cursor:pointer;color:inherit;transition:background .12s}
-.action-pill:hover{background:#f1e7d3}
-.pill-text-primary{color:#333;white-space:nowrap}
-.pill-text-secondary{color:#b07a30;white-space:nowrap}
-</style>
-</head>
-<body>
-<div class="scroll" id="scroll">
-<div class="sidebar double-sidebar" id="left-sidebar"></div>
-<div id="todo-container"></div>
-<div class="sidebar double-sidebar" id="right-sidebar"></div>
-<div class="sidebar mono-sidebar" id="mono-sidebar">
-<div class="pill-container action-box">
-<button class="pill action-pill" type="button" id="copy-as-json-raw-array"><span class="pill-text-primary">copy as json</span> <span class="pill-text-secondary">raw array</span></button>
-<button class="pill action-pill" type="button" id="copy-as-json-nested-object-tree"><span class="pill-text-primary">copy as json</span> <span class="pill-text-secondary">nested object tree</span></button>
-</div>
-<div class="pill-container info-box">
-<div class="pill info-pill" id="deployed-timestamp"><span class="pill-text-primary">deployed</span> <span class="pill-text-secondary"></span></div>
-<div class="pill info-pill" id="page-edit-timestamp"><span class="pill-text-primary">page edit</span> <span class="pill-text-secondary"></span></div>
-<div class="pill info-pill" id="commit-timestamp"><span class="pill-text-primary">commit</span> <span class="pill-text-secondary"></span></div>
-<div class="pill info-pill" id="on-branch-branchname"><span class="pill-text-primary">on branch</span> <span class="pill-text-secondary"></span></div>
-</div>
-</div>
-</div>
-<script>
-// clientMain is serialized from the Worker bundle via toString(); wrangler's
-// esbuild wraps named functions with a keepNames __name() helper that lives in
-// module scope and isn't carried into the page. Shim it (no-op) so the
-// serialized body resolves it here.
-var __name = function (x) { return x; };
-var LAST_DEPLOYMENT_TIMESTAMP = ${JSON.stringify(lastDeploymentTimestamp)};
-var QUOTES = ${JSON.stringify(quotes)};
-;(${clientMain.toString()})();
-</script>
-</body>
-</html>`;
-  return new Response(html, {
-    headers: { 'content-type': 'text/html; charset=utf-8' },
-  });
-}
-
 // ── Browser client ──────────────────────────────────────────────────────────
-// Defined here as a normal function purely so it can be serialized into the
-// page with toString(). It must be self-contained (no closure over module
-// scope). Layers are kept separate: a data/tree mirror, a walk() projection,
-// an isolated cursor module, and a command layer that translates keystrokes
-// into tree mutations. optparse is a stub (see optparse(), below).
-function clientMain() {
+// This is browser code, not Worker code: it is never called here, only
+// serialized into the page with clientMain.toString() (see page() in the Worker
+// entry). Two consequences, both load-bearing:
+//
+//   1. clientMain MUST stay self-contained — no closure over module scope, no
+//      runtime imports. Only the function's own body crosses into the page, so
+//      anything it referenced from outside would be undefined there. Type-only
+//      references are fine: they're erased before the bundle exists.
+//   2. It typechecks against the DOM lib, not @cloudflare/workers-types. That is
+//      why it sits in its own project (tsconfig.client.json) — the two global
+//      type sets collide (both declare Response, fetch, WebSocket, …).
+//
+// LAST_DEPLOYMENT_TIMESTAMP and QUOTES are inlined into the page as globals by
+// page(), so they are declared here rather than imported (a runtime import would
+// not survive toString()).
+//
+// Layers are kept separate: a data/tree mirror, a walk() projection, an isolated
+// cursor module, and a command layer that translates keystrokes into tree
+// mutations. optparse is a stub (see optparse(), below).
+
+declare const LAST_DEPLOYMENT_TIMESTAMP: DeploymentStamp;
+declare const QUOTES: { quoteText: string; quoteAuthor: string }[];
+
+export function clientMain() {
   const INDENT = 28;
   const FONT = "16px -apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif";
   const DEBOUNCE_MS = 400;
 
-  const list = document.getElementById('todo-container');
-  const scroll = document.getElementById('scroll');
+  const list = document.getElementById('todo-container') as HTMLElement;
+  const scroll = document.getElementById('scroll') as HTMLElement;
 
   // ── Data layer: client mirror of the DO ──
-  let nodesById = new Map();
+  let nodesById = new Map<string, Todo>();
   let treeRevision = 0;
-  let currentLines = []; // last walk() result (document order)
-  let pending = null; // cursor target after a re-render: { id, col }
-  const editTimers = new Map(); // id → debounce handle for typing
+  let currentLines: Line[] = []; // last walk() result (document order)
+  let pending: { id: string; col: number } | null = null; // cursor target after a re-render
+  const editTimers = new Map<string, ReturnType<typeof setTimeout>>(); // id → debounce handle
 
   function loadTree() {
     return fetch('/scratchpad/tree')
-      .then((r) => r.json())
+      .then((r) => r.json() as Promise<{ treeRevision: number; nodes: Todo[] }>)
       .then((data) => {
         treeRevision = data.treeRevision || 0;
         nodesById = new Map();
@@ -164,13 +48,13 @@ function clientMain() {
       .catch(() => {});
   }
 
-  function postMutations(batch) {
+  function postMutations(batch: Mutation[]) {
     fetch('/scratchpad/mutations', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(batch),
     })
-      .then((r) => r.json())
+      .then((r) => r.json() as Promise<{ treeRevision?: number }>)
       .then((d) => {
         if (d && typeof d.treeRevision === 'number')
           treeRevision = d.treeRevision;
@@ -179,37 +63,40 @@ function clientMain() {
   }
 
   // Apply a mutation to the local mirror exactly as the DO does, then persist.
-  function commit(batch) {
+  function commit(batch: Mutation[]) {
     for (const m of batch) applyLocal(m);
     postMutations(batch);
   }
-  function applyLocal(m) {
-    const key = m.id;
+  function applyLocal(m: Mutation) {
     if (m.op === 'insert') {
-      nodesById.set(key, {
+      nodesById.set(m.id, {
         id: m.id,
-        parentID: m.parentID != null ? m.parentID : null,
+        parentID: m.parentID,
         position: m.position,
-        checkbox: m.checkbox || false,
-        keyboardText: m.keyboardText || '',
+        checked: m.checked,
+        keyboardText: m.keyboardText,
       });
     } else if (m.op === 'replace' || m.op === 'move') {
-      const cur = nodesById.get(key);
+      const cur = nodesById.get(m.id);
       if (!cur) return;
-      const next = Object.assign({}, cur);
-      for (const f of ['checkbox', 'keyboardText', 'parentID', 'position']) {
-        if (f in m) next[f] = m[f];
-      }
-      nodesById.set(key, next);
+      const next = { ...cur };
+      // The mutable fields, patched one by one: a mutation overwrites exactly
+      // the fields it carries (the DO's MUTABLE_FIELDS loop, unrolled so the
+      // compiler can check each assignment).
+      if (m.checked !== undefined) next.checked = m.checked;
+      if (m.keyboardText !== undefined) next.keyboardText = m.keyboardText;
+      if (m.parentID !== undefined) next.parentID = m.parentID;
+      if (m.position !== undefined) next.position = m.position;
+      nodesById.set(m.id, next);
     } else if (m.op === 'delete') {
       deleteLocalSubtree(m.id);
     }
   }
-  function deleteLocalSubtree(rootID) {
+  function deleteLocalSubtree(rootID: string) {
     const kids = childMap();
     const stack = [rootID];
     while (stack.length) {
-      const id = stack.pop();
+      const id = stack.pop()!;
       nodesById.delete(id);
       for (const c of kids.get(id) || []) stack.push(c.id);
     }
@@ -217,43 +104,47 @@ function clientMain() {
 
   // ── Tree helpers ──
   function childMap() {
-    const kids = new Map();
+    const kids = new Map<string | null, Todo[]>();
     for (const n of nodesById.values()) {
       const p = n.parentID != null ? n.parentID : null;
-      if (!kids.has(p)) kids.set(p, []);
-      kids.get(p).push(n);
+      const siblings = kids.get(p);
+      if (siblings) siblings.push(n);
+      else kids.set(p, [n]);
     }
     for (const arr of kids.values()) arr.sort(cmpNodes);
     return kids;
   }
-  function cmpNodes(a, b) {
+  function cmpNodes(a: Todo, b: Todo) {
     return a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   }
   // The primitive: every node whose parent is parentID, in sibling order.
-  function childrenOf(parentID) {
+  function childrenOf(parentID: string | null) {
     const p = parentID != null ? parentID : null;
     return [...nodesById.values()]
       .filter((n) => (n.parentID != null ? n.parentID : null) === p)
       .sort(cmpNodes);
   }
   // A node's own row (its parent's children — includes the node itself).
-  function siblingsOf(node) {
+  function siblingsOf(node: Todo) {
     return childrenOf(node.parentID);
   }
   // True when `node` and every descendant is checked — the whole subtree is
   // done. `kids` is an optional childMap() (parentID → sorted children); pass
   // one to reuse it across calls. Used to hide completed top-level trees in
   // walk(), but kept general for future callers.
-  function fullyChecked(node, kids) {
+  function fullyChecked(
+    node: Todo,
+    kids?: Map<string | null, Todo[]>,
+  ): boolean {
     kids = kids || childMap();
-    if (!node.checkbox) return false;
+    if (!node.checked) return false;
     for (const c of kids.get(node.id) || []) {
       if (!fullyChecked(c, kids)) return false;
     }
     return true;
   }
   // Walk parent pointers up to the 0-depth node that roots `id`'s tree.
-  function rootOf(id) {
+  function rootOf(id: string) {
     let n = nodesById.get(id);
     while (n && n.parentID != null) n = nodesById.get(n.parentID);
     return n;
@@ -261,9 +152,9 @@ function clientMain() {
   // Fractional position between two neighbors (numbers or null for open ends).
   // NOTE: float midpoint gives ~50 same-spot inserts before precision loss;
   // acceptable at scratchpad scale. Revisit with renumber-on-collision later.
-  function between(lo, hi) {
+  function between(lo: number | null, hi: number | null) {
     if (lo == null && hi == null) return 1;
-    if (lo == null) return hi - 1;
+    if (lo == null) return hi! - 1;
     if (hi == null) return lo + 1;
     return (lo + hi) / 2;
   }
@@ -271,8 +162,8 @@ function clientMain() {
   // ── Projection: tree → ordered lines with depth (the mock's `lines`) ──
   function walk() {
     const kids = childMap();
-    const lines = [];
-    (function dfs(parentID, depth) {
+    const lines: Line[] = [];
+    (function dfs(parentID: string | null, depth: number) {
       for (const n of kids.get(parentID) || []) {
         // A todo-tree is a single 0-depth node; hide the whole tree once every
         // box in it is checked (see fullyChecked).
@@ -293,13 +184,13 @@ function clientMain() {
       const n = line.node;
       const row = document.createElement('div');
       row.className = 'todo-row';
-      row.dataset.checked = n.checkbox ? '1' : '0';
+      row.dataset.checked = n.checked ? '1' : '0';
       row.style.marginLeft = line.depth * INDENT + 'px';
 
       const btn = document.createElement('button');
-      btn.className = n.checkbox ? 'todo-checkbox checked' : 'todo-checkbox';
+      btn.className = n.checked ? 'todo-checked checked' : 'todo-checked';
       btn.dataset.id = n.id;
-      btn.textContent = n.checkbox ? '✓' : '';
+      btn.textContent = n.checked ? '✓' : '';
 
       const input = document.createElement('input');
       input.dataset.id = n.id;
@@ -320,8 +211,10 @@ function clientMain() {
     focusLine(pending.id, pending.col);
     pending = null;
   }
-  function focusLine(id, col) {
-    const el = list.querySelector('input[data-id="' + id + '"]');
+  function focusLine(id: string, col: number | null) {
+    const el = list.querySelector<HTMLInputElement>(
+      'input[data-id="' + id + '"]',
+    );
     if (!el) return;
     el.focus();
     const c = col == null ? el.value.length : col;
@@ -329,19 +222,21 @@ function clientMain() {
       el.setSelectionRange(c, c);
     } catch (_) {}
   }
+  // The canvas is cached on the function object itself, so the measuring context
+  // is built once rather than per keystroke.
   function measureCtx() {
-    const c =
-      measureCtx._c || (measureCtx._c = document.createElement('canvas'));
-    const ctx = c.getContext('2d');
+    const cache = measureCtx as { _c?: HTMLCanvasElement };
+    const c = cache._c || (cache._c = document.createElement('canvas'));
+    const ctx = c.getContext('2d')!;
     ctx.font = FONT;
     return ctx;
   }
   // Preserve the caret's visual x-position when moving between lines of
   // differing indent (canvas text metrics). Ported from the mock.
-  function moveCaret(from, to, col) {
+  function moveCaret(from: Line, to: Line, col: number) {
     const ctx = measureCtx();
-    const fromText = nodesById.get(from.node.id).keyboardText || '';
-    const toText = nodesById.get(to.node.id).keyboardText || '';
+    const fromText = nodesById.get(from.node.id)?.keyboardText || '';
+    const toText = nodesById.get(to.node.id)?.keyboardText || '';
     const srcW = ctx.measureText(fromText.slice(0, col)).width;
     const targetW = srcW + (from.depth - to.depth) * INDENT;
     let best = 0;
@@ -355,9 +250,10 @@ function clientMain() {
     }
     focusLine(to.node.id, best);
   }
-  function blankFocus(e) {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
-    const inputs = list.querySelectorAll('input[data-id]');
+  function blankFocus(e: MouseEvent) {
+    const t = e.target as HTMLElement;
+    if (t.tagName === 'INPUT' || t.tagName === 'BUTTON') return;
+    const inputs = list.querySelectorAll<HTMLInputElement>('input[data-id]');
     const last = inputs[inputs.length - 1];
     if (last) {
       e.preventDefault();
@@ -369,20 +265,19 @@ function clientMain() {
   // ── optparse (STUB) ──
   // Real optparse (type detection from input + opts + 2nd-order effects) lands
   // later. For now every line is a todo-line-item and this hook does nothing.
-  function optparse(text) {
+  function optparse(text: string) {
     return { type: 'todo-line-item' };
   }
 
   // ── Command layer: keystroke → tree mutation(s) + cursor target ──
-  function lineOf(id) {
+  function lineOf(id: string) {
     return currentLines.find((l) => l.node.id === id);
   }
 
-  function onInput(node, input) {
+  function onInput(node: Todo, input: HTMLInputElement) {
     const val = input.value;
     const cur = nodesById.get(node.id);
-    if (cur)
-      nodesById.set(node.id, Object.assign({}, cur, { keyboardText: val }));
+    if (cur) nodesById.set(node.id, { ...cur, keyboardText: val });
     clearTimeout(editTimers.get(node.id));
     editTimers.set(
       node.id,
@@ -398,30 +293,31 @@ function clientMain() {
     optparse(val); // stubbed
   }
 
-  function onToggle(btn) {
+  function onToggle(btn: HTMLButtonElement) {
     const id = btn.dataset.id;
+    if (!id) return;
     const n = nodesById.get(id);
     if (!n) return;
-    const val = !n.checkbox;
-    commit([{ op: 'replace', id: id, checkbox: val }]);
+    const val = !n.checked;
+    commit([{ op: 'replace', id: id, checked: val }]);
     // Checking the last open box completes the whole top-level tree, which then
     // drops out of the view (see walk()) — re-render so it disappears. Any other
-    // toggle updates the one checkbox in place, leaving the caret untouched.
+    // toggle updates the one .todo-checked in place, leaving the caret untouched.
     const root = rootOf(id);
     if (val && root && fullyChecked(root)) {
       seedIfEmpty(); // if that was the last visible tree, drop in a fresh quote
       render();
       return;
     }
-    btn.className = val ? 'todo-checkbox checked' : 'todo-checkbox';
+    btn.className = val ? 'todo-checked checked' : 'todo-checked';
     btn.textContent = val ? '✓' : '';
-    const row = btn.closest('.todo-row');
+    const row = btn.closest<HTMLElement>('.todo-row');
     if (row) row.dataset.checked = val ? '1' : '0';
   }
 
-  function onEnter(line, input) {
+  function onEnter(line: Line, input: HTMLInputElement) {
     const node = line.node;
-    const col = input.selectionStart;
+    const col = input.selectionStart ?? 0;
     const nid = crypto.randomUUID();
     if (col === 0 && input.value !== '') {
       // Caret at start of a non-empty line: new empty line ABOVE (prev sibling).
@@ -434,7 +330,7 @@ function clientMain() {
           id: nid,
           parentID: node.parentID != null ? node.parentID : null,
           position: between(lo, node.position),
-          checkbox: false,
+          checked: false,
           keyboardText: '',
         },
       ]);
@@ -449,7 +345,7 @@ function clientMain() {
             id: nid,
             parentID: node.id,
             position: between(null, kids[0].position),
-            checkbox: false,
+            checked: false,
             keyboardText: '',
           },
         ]);
@@ -463,7 +359,7 @@ function clientMain() {
             id: nid,
             parentID: node.parentID != null ? node.parentID : null,
             position: between(node.position, hi),
-            checkbox: false,
+            checked: false,
             keyboardText: '',
           },
         ]);
@@ -473,7 +369,7 @@ function clientMain() {
     render();
   }
 
-  function onBackspaceEmpty(line, input) {
+  function onBackspaceEmpty(line: Line, input: HTMLInputElement) {
     if (input.value !== '') return false;
     if (nodesById.size <= 1) return false;
     const i = currentLines.findIndex((l) => l.node.id === line.node.id);
@@ -481,7 +377,7 @@ function clientMain() {
     if (childrenOf(line.node.id).length) return false; // don't delete a parent
     const prev = currentLines[i - 1];
     commit([{ op: 'delete', id: line.node.id }]);
-    const prevText = nodesById.get(prev.node.id).keyboardText || '';
+    const prevText = nodesById.get(prev.node.id)?.keyboardText || '';
     pending = { id: prev.node.id, col: prevText.length };
     render();
     return true;
@@ -491,7 +387,7 @@ function clientMain() {
   // leaves it alone. When it's empty and childless, delete it instead and drop
   // the caret onto the line that rises to take its place. Kept separate so Delete
   // reaches only this case, never the merge-up path. No-op on the sole line.
-  function onDeleteTopmostEmpty(line, input) {
+  function onDeleteTopmostEmpty(line: Line, input: HTMLInputElement) {
     if (input.value !== '') return false;
     const i = currentLines.findIndex((l) => l.node.id === line.node.id);
     if (i !== 0) return false; // only the topmost line
@@ -504,7 +400,7 @@ function clientMain() {
     return true;
   }
 
-  function onIndent(line, col) {
+  function onIndent(line: Line, col: number) {
     const node = line.node;
     const sibs = siblingsOf(node);
     const idx = sibs.findIndex((s) => s.id === node.id);
@@ -524,10 +420,11 @@ function clientMain() {
     render();
   }
 
-  function onOutdent(line, col) {
+  function onOutdent(line: Line, col: number) {
     const node = line.node;
     if (node.parentID == null) return; // already at root
     const parent = nodesById.get(node.parentID);
+    if (!parent) return;
     const grandID = parent.parentID != null ? parent.parentID : null;
     const gsibs = siblingsOf(parent);
     const pidx = gsibs.findIndex((s) => s.id === parent.id);
@@ -544,7 +441,7 @@ function clientMain() {
     render();
   }
 
-  function onArrow(dir, line, input) {
+  function onArrow(dir: 'up' | 'down', line: Line, input: HTMLInputElement) {
     const i = currentLines.findIndex((l) => l.node.id === line.node.id);
     const j = dir === 'up' ? i - 1 : i + 1;
     if (j < 0 || j >= currentLines.length) {
@@ -554,19 +451,19 @@ function clientMain() {
       input.setSelectionRange(col, col);
       return;
     }
-    moveCaret(currentLines[i], currentLines[j], input.selectionStart);
+    moveCaret(currentLines[i], currentLines[j], input.selectionStart ?? 0);
   }
 
   // ── Event wiring (delegated, so re-renders don't re-attach) ──
   list.addEventListener('input', (e) => {
-    const t = e.target;
+    const t = e.target as HTMLInputElement;
     if (t.dataset && t.dataset.id && t.tagName === 'INPUT') {
       const line = lineOf(t.dataset.id);
       if (line) onInput(line.node, t);
     }
   });
   list.addEventListener('keydown', (e) => {
-    const t = e.target;
+    const t = e.target as HTMLInputElement;
     if (!(t.dataset && t.dataset.id && t.tagName === 'INPUT')) return;
     const line = lineOf(t.dataset.id);
     if (!line) return;
@@ -586,12 +483,13 @@ function clientMain() {
       onArrow('down', line, t);
     } else if (e.key === 'Tab') {
       e.preventDefault();
-      if (e.shiftKey) onOutdent(line, t.selectionStart);
-      else onIndent(line, t.selectionStart);
+      if (e.shiftKey) onOutdent(line, t.selectionStart ?? 0);
+      else onIndent(line, t.selectionStart ?? 0);
     }
   });
   list.addEventListener('click', (e) => {
-    const btn = e.target.closest ? e.target.closest('button[data-id]') : null;
+    const t = e.target as HTMLElement;
+    const btn = t.closest ? t.closest<HTMLButtonElement>('button[data-id]') : null;
     if (btn) onToggle(btn);
   });
   scroll.addEventListener('mousedown', blankFocus);
@@ -606,12 +504,12 @@ function clientMain() {
   }
   function nestedTree() {
     const kids = childMap();
-    return (function build(parentID, depth) {
+    return (function build(parentID: string | null, depth: number): unknown[] {
       return (kids.get(parentID) || [])
         .filter((n) => !(depth === 0 && fullyChecked(n, kids)))
         .map((n) => ({
           id: n.id,
-          checkbox: n.checkbox,
+          checked: n.checked,
           keyboardText: n.keyboardText,
           position: n.position,
           children: build(n.id, depth + 1),
@@ -628,7 +526,7 @@ function clientMain() {
   (function renderLastDeploymentTimestamp() {
     const s = LAST_DEPLOYMENT_TIMESTAMP;
     // Format "2026-07-08" + "09:52:36" → "9:52am on Jul 8"
-    function formatStampTime(date, time) {
+    function formatStampTime(date: string, time: string) {
       const [y, m, d] = date.split('-');
       const [h, min] = time.split(':');
       const hNum = parseInt(h, 10);
@@ -652,19 +550,22 @@ function clientMain() {
       const dNum = parseInt(d, 10);
       return h12 + ':' + min + ampm + ' on ' + mName + ' ' + dNum;
     }
-    function fillPill(id, value) {
+    function fillPill(id: string, value: string) {
       const pill = document.getElementById(id);
       if (!pill) return;
       const slot = pill.querySelector('.pill-text-secondary');
       if (slot) slot.textContent = value;
     }
-    function dropPill(id) {
+    function dropPill(id: string) {
       const pill = document.getElementById(id);
       if (pill) pill.remove();
     }
     fillPill('on-branch-branchname', '#' + s.branch);
     if (window.location.hostname === 'localhost') {
-      fillPill('page-edit-timestamp', formatStampTime(s.pageEdit.date, s.pageEdit.time));
+      fillPill(
+        'page-edit-timestamp',
+        formatStampTime(s.pageEdit.date, s.pageEdit.time),
+      );
       fillPill('commit-timestamp', formatStampTime(s.commit.date, s.commit.time));
       dropPill('deployed-timestamp');
     } else {
@@ -681,11 +582,11 @@ function clientMain() {
       ? 'Scratchpad — localhost'
       : 'Scratchpad';
 
-  function copyAsJSON(data) {
+  function copyAsJSON(data: unknown) {
     const text = JSON.stringify(data, null, 2);
     if (navigator.clipboard) navigator.clipboard.writeText(text);
   }
-  function onActionPill(id, build) {
+  function onActionPill(id: string, build: () => unknown) {
     const pill = document.getElementById(id);
     if (pill) pill.addEventListener('click', () => copyAsJSON(build()));
   }
@@ -711,7 +612,7 @@ function clientMain() {
         id: crypto.randomUUID(),
         parentID: null,
         position: between(lastPos, null),
-        checkbox: false,
+        checked: false,
         keyboardText: quoteLine(),
       },
     ]);
@@ -721,7 +622,7 @@ function clientMain() {
   loadTree().then(() => {
     seedIfEmpty();
     render();
-    const inputs = list.querySelectorAll('input[data-id]');
+    const inputs = list.querySelectorAll<HTMLInputElement>('input[data-id]');
     const last = inputs[inputs.length - 1];
     if (last) last.focus();
   });
