@@ -15,7 +15,7 @@ import iconSvg from './scratchpad-pencil-icon.svg';
 import machineNamesHtml from './machine-names.html';
 
 // Build-time values (deploy time; or latest src edit + last commit for dev),
-// written by scripts/generate-build-timestamp.mjs. Rendered into the info-pills.
+// written by scripts/generate-deployment-timestamp.mjs. Rendered into the info-pills.
 import { lastDeploymentTimestamp } from './last-deployment-timestamp.js';
 
 // Personality quotes ({ quoteText, quoteAuthor } POJOs). Bundled at build time
