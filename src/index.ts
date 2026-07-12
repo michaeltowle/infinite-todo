@@ -20,7 +20,11 @@ import { lastDeploymentTimestamp } from './last-deployment-timestamp.ts';
 // the Worker. (See client-main.ts: it must stay self-contained.)
 import { clientMain } from './client-main.ts';
 
-const API_PATHS = new Set(['/scratchpad/tree', '/scratchpad/mutations']);
+const API_PATHS = new Set([
+  '/scratchpad/tree',
+  '/scratchpad/mutations',
+  '/scratchpad/socket', // WebSocket upgrade; the DO answers it, live-sync's read channel
+]);
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {

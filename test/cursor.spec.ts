@@ -15,57 +15,8 @@
 // of scope and belong in their own spec; Backspace appears only where its whole
 // purpose is deciding where the caret lands.
 
-import { test, expect, type Page } from '@playwright/test';
-import { layTree, node, open } from './helpers';
-
-// The cursor, read straight off the DOM.
-async function cursor(page: Page) {
-  return page.evaluate(() => {
-    const el = document.activeElement as HTMLInputElement | null;
-    return {
-      tag: el ? el.tagName : null,
-      id: el && el.dataset ? (el.dataset.id ?? null) : null,
-      start: el && typeof el.selectionStart === 'number' ? el.selectionStart : null,
-      end: el && typeof el.selectionEnd === 'number' ? el.selectionEnd : null,
-    };
-  });
-}
-
-// Put the caret somewhere as a starting condition. Deliberately does NOT go through
-// the app's own code paths — otherwise a test would be asserting on the thing it used
-// to set up.
-async function putCaret(page: Page, id: string, col: number) {
-  await page.evaluate(
-    ({ id, col }) => {
-      const el = document.querySelector(`input[data-id="${id}"]`) as HTMLInputElement;
-      el.focus();
-      el.setSelectionRange(col, col);
-    },
-    { id, col },
-  );
-}
-
-// Stamp a live DOM node so we can tell afterwards whether render() replaced it.
-// render() does list.textContent = '' and rebuilds every row, so a surviving stamp
-// proves no re-render happened — and therefore that focus and caret could not have
-// been destroyed.
-async function stamp(page: Page, id: string) {
-  await page.evaluate((id) => {
-    (document.querySelector(`input[data-id="${id}"]`) as HTMLInputElement & { _stamp?: number })._stamp = 1;
-  }, id);
-}
-async function stampSurvived(page: Page, id: string) {
-  return page.evaluate((id) => {
-    const el = document.querySelector(`input[data-id="${id}"]`) as (HTMLInputElement & { _stamp?: number }) | null;
-    return !!(el && el._stamp);
-  }, id);
-}
-
-const caretOf = (page: Page, id: string) =>
-  page.evaluate(
-    (id) => (document.querySelector(`input[data-id="${id}"]`) as HTMLInputElement).selectionStart,
-    id,
-  );
+import { test, expect } from '@playwright/test';
+import { caretOf, cursor, layTree, node, open, putCaret, stamp, stampSurvived } from './helpers';
 
 // Three roots at the same depth, with deliberately different lengths.
 const FLAT = [

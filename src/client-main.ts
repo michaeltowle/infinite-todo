@@ -26,6 +26,14 @@ export function clientMain() {
   const FONT = "16px -apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif";
   const DEBOUNCE_MS = 400;
   const RETRY_MS = 500;
+  const RECONNECT_MS = 1000;
+
+  // This tab's identity, for the life of the page. Every write carries it, and the
+  // DO uses it to skip this tab when fanning that write out — we already applied it
+  // optimistically, and re-applying would cost us a render, and with it the caret.
+  // Per TAB, not per device: two tabs on one laptop are two strangers.
+  const tabID = crypto.randomUUID();
+  const MUTATIONS_URL = '/scratchpad/mutations?tab=' + tabID;
 
   const list = document.getElementById('todo-container') as HTMLElement;
   const scroll = document.getElementById('scroll') as HTMLElement;
@@ -67,7 +75,7 @@ export function clientMain() {
     draining = true;
     while (outbox.length) {
       try {
-        const r = await fetch('/scratchpad/mutations', {
+        const r = await fetch(MUTATIONS_URL, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(outbox[0]),
@@ -86,7 +94,7 @@ export function clientMain() {
   // Apply a mutation to the local mirror exactly as the DO does, then persist.
   // Anything still parked on a debounce timer is flushed into the same batch first,
   // so a command can never race ahead of the text that was typed before it.
-  function commit(batch: Mutation[]) {
+  function commitLocal(batch: Mutation[]) {
     const all = flushEdits().concat(batch);
     for (const m of all) applyLocal(m);
     postMutations(all);
@@ -117,7 +125,7 @@ export function clientMain() {
     const unsent = ([] as Mutation[]).concat(...outbox).concat(flushEdits());
     if (!unsent.length) return;
     navigator.sendBeacon(
-      '/scratchpad/mutations',
+      MUTATIONS_URL,
       new Blob([JSON.stringify(unsent)], { type: 'application/json' }),
     );
   }
@@ -342,6 +350,87 @@ export function clientMain() {
     }
   }
 
+  // ── Live sync (read channel) ──
+  // The DO fans every applied batch out to the other open tabs, and this is where
+  // they land. Nothing is ever SENT over this socket: writes still go out as POSTs
+  // through the outbox, which knows how to retry them. The socket only ever carries
+  // other devices' news.
+  let socket: WebSocket | null = null;
+  let hasConnected = false;
+
+  function connectSocket() {
+    const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    socket = new WebSocket(
+      scheme + '//' + location.host + '/scratchpad/socket?tab=' + tabID,
+    );
+    socket.addEventListener('open', () => {
+      // A *re*connect means we were deaf for a while, so the mirror cannot be
+      // trusted: refetch the whole tree rather than trying to replay what we missed.
+      // The DO keeps no op-log, and at scratchpad scale a full read is pennies.
+      if (hasConnected) refetch();
+      hasConnected = true;
+    });
+    socket.addEventListener('message', (e) => {
+      const msg = JSON.parse(e.data as string) as {
+        treeRevision?: number;
+        batch?: Mutation[];
+      };
+      if (typeof msg.treeRevision === 'number') treeRevision = msg.treeRevision;
+      if (msg.batch) applyRemote(msg.batch);
+    });
+    socket.addEventListener('close', () => {
+      socket = null;
+      setTimeout(connectSocket, RECONNECT_MS);
+    });
+  }
+
+  function refetch() {
+    loadTree().then(() => {
+      seedIfEmpty();
+      repositionCursorAfterRender();
+    });
+  }
+
+  // A batch somebody else made. Apply it to the mirror exactly as the DO did, then
+  // re-render — holding the cursor, because render() rebuilds every row and would
+  // otherwise annihilate focus and caret mid-word.
+  //
+  // Note what is NOT here: seedIfEmpty(). Seeding is a derived action — "nothing is
+  // visible, so drop in a blank line" — and if every device drew that conclusion
+  // independently, every device would seed. Only the device that actually checked the
+  // last box seeds; the others receive that blank line like any other create.
+  function applyRemote(batch: Mutation[]) {
+    for (const m of batch) {
+      // Another device's text must never land in a line we have unsent text for — it
+      // would overwrite the word under the user's fingers. A live debounce timer is
+      // exactly that condition: it says "typed here, not yet saved". Hold the text
+      // back and let the rest of the mutation (checked, treePlacement) through; our
+      // own version is already in the mirror and goes out when the timer fires.
+      //
+      // Keying this on editTimers rather than on which input has focus is deliberate.
+      // Boot focuses the last input on EVERY device, so a focus test would leave the
+      // last line permanently deaf to remote text on any idle tab.
+      if (m.op === 'edit' && m.keyboardText !== undefined && editTimers.has(m.id)) {
+        const { keyboardText, ...withoutText } = m;
+        applyLocal(withoutText);
+        continue;
+      }
+      applyLocal(m);
+    }
+    repositionCursorAfterRender();
+  }
+
+  // render() destroys focus and caret by construction, so a re-render we did not ask
+  // for has to state where the cursor should end up first. That is exactly what
+  // `pending` is for — the same mechanism Enter and Backspace already use.
+  function repositionCursorAfterRender() {
+    const el = document.activeElement as HTMLInputElement | null;
+    if (el && el.tagName === 'INPUT' && el.dataset.id) {
+      pending = { id: el.dataset.id, col: el.selectionStart ?? 0 };
+    }
+    render();
+  }
+
   // ── optparse (STUB) ──
   // Real optparse (type detection from input + opts + 2nd-order effects) lands
   // later. For now every line is a todo-line-item and this hook does nothing.
@@ -379,7 +468,7 @@ export function clientMain() {
     const n = nodesById.get(id);
     if (!n) return;
     const val = !n.checked;
-    commit([{ op: 'edit', id: id, checked: val }]);
+    commitLocal([{ op: 'edit', id: id, checked: val }]);
     // Checking the last open box completes the whole top-level tree, which then
     // drops out of the view (see walk()) — re-render so it disappears. Any other
     // toggle updates the one .todo-checked in place, leaving the caret untouched.
@@ -404,7 +493,7 @@ export function clientMain() {
       const sibs = siblingsOf(node);
       const idx = sibs.findIndex((s) => s.id === node.id);
       const lo = idx > 0 ? sibs[idx - 1].position : null;
-      commit([
+      commitLocal([
         {
           op: 'create',
           id: nid,
@@ -419,7 +508,7 @@ export function clientMain() {
       // New empty line BELOW: first child if the node has children, else next sibling.
       const kids = childrenOf(node.id);
       if (kids.length) {
-        commit([
+        commitLocal([
           {
             op: 'create',
             id: nid,
@@ -433,7 +522,7 @@ export function clientMain() {
         const sibs = siblingsOf(node);
         const idx = sibs.findIndex((s) => s.id === node.id);
         const hi = idx + 1 < sibs.length ? sibs[idx + 1].position : null;
-        commit([
+        commitLocal([
           {
             op: 'create',
             id: nid,
@@ -456,7 +545,7 @@ export function clientMain() {
     if (i <= 0) return false; // don't delete the first line
     if (childrenOf(line.node.id).length) return false; // don't delete a parent
     const prev = currentLines[i - 1];
-    commit([{ op: 'delete', id: line.node.id }]);
+    commitLocal([{ op: 'delete', id: line.node.id }]);
     const prevText = nodesById.get(prev.node.id)?.keyboardText || '';
     pending = { id: prev.node.id, col: prevText.length };
     render();
@@ -474,7 +563,7 @@ export function clientMain() {
     if (currentLines.length <= 1) return false; // keep at least one line
     if (childrenOf(line.node.id).length) return false; // don't delete a parent
     const next = currentLines[1];
-    commit([{ op: 'delete', id: line.node.id }]);
+    commitLocal([{ op: 'delete', id: line.node.id }]);
     pending = { id: next.node.id, col: 0 };
     render();
     return true;
@@ -488,7 +577,7 @@ export function clientMain() {
     const newParent = sibs[idx - 1];
     const kids = childrenOf(newParent.id);
     const lastPos = kids.length ? kids[kids.length - 1].position : null;
-    commit([
+    commitLocal([
       {
         op: 'edit',
         id: node.id,
@@ -509,7 +598,7 @@ export function clientMain() {
     const gsibs = siblingsOf(parent);
     const pidx = gsibs.findIndex((s) => s.id === parent.id);
     const hi = pidx + 1 < gsibs.length ? gsibs[pidx + 1].position : null;
-    commit([
+    commitLocal([
       {
         op: 'edit',
         id: node.id,
@@ -690,10 +779,17 @@ export function clientMain() {
     if (walk().length > 0) return;
     const roots = childrenOf(null);
     const lastPos = roots.length ? roots[roots.length - 1].position : null;
-    commit([
+    commitLocal([
       {
         op: 'create',
-        id: crypto.randomUUID(),
+        // Deliberately NOT a random id, unlike every other create. Seeding is a
+        // *derived* action — "nothing is visible, so drop in a blank line" — and two
+        // tabs can reach that conclusion at the same moment (both booting into a
+        // fully-checked scratchpad, say). Random ids would give you two blank lines.
+        // An id derived from the revision that emptied the tree gives both tabs the
+        // same id, so the two creates land on the same node and collapse into one.
+        // treeRevision only ever climbs, so it cannot collide with an earlier seed.
+        id: 'blank-seed-' + treeRevision,
         parentID: null,
         position: between(lastPos, null),
         checked: false,
@@ -709,5 +805,6 @@ export function clientMain() {
     const inputs = list.querySelectorAll<HTMLInputElement>('input[data-id]');
     const last = inputs[inputs.length - 1];
     if (last) last.focus();
+    connectSocket();
   });
 }

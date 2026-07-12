@@ -59,3 +59,60 @@ export async function readTree(request: APIRequestContext): Promise<StoredNode[]
 export async function nodeById(request: APIRequestContext, id: string) {
   return (await readTree(request)).find((n) => n.id === id);
 }
+
+// ─── The cursor, read straight off the DOM ───────────────────────────────────
+// The app has no cursor object: "the cursor" is exactly two DOM facts, focus
+// (document.activeElement) and caret (a collapsed selection range).
+
+export async function cursor(page: Page) {
+  return page.evaluate(() => {
+    const el = document.activeElement as HTMLInputElement | null;
+    return {
+      tag: el ? el.tagName : null,
+      id: el && el.dataset ? (el.dataset.id ?? null) : null,
+      start: el && typeof el.selectionStart === 'number' ? el.selectionStart : null,
+      end: el && typeof el.selectionEnd === 'number' ? el.selectionEnd : null,
+    };
+  });
+}
+
+export const caretOf = (page: Page, id: string) =>
+  page.evaluate(
+    (id) => (document.querySelector(`input[data-id="${id}"]`) as HTMLInputElement).selectionStart,
+    id,
+  );
+
+// Put the caret somewhere as a starting condition. Deliberately does NOT go through
+// the app's own code paths — otherwise a test would be asserting on the thing it used
+// to set up.
+export async function putCaret(page: Page, id: string, col: number) {
+  await page.evaluate(
+    ({ id, col }) => {
+      const el = document.querySelector(`input[data-id="${id}"]`) as HTMLInputElement;
+      el.focus();
+      el.setSelectionRange(col, col);
+    },
+    { id, col },
+  );
+}
+
+// Stamp a live DOM node so we can tell afterwards whether render() replaced it.
+// render() does list.textContent = '' and rebuilds every row, so a surviving stamp
+// proves no re-render happened — and therefore that focus and caret could not have
+// been destroyed.
+export async function stamp(page: Page, id: string) {
+  await page.evaluate((id) => {
+    (document.querySelector(`input[data-id="${id}"]`) as HTMLInputElement & {
+      _stamp?: number;
+    })._stamp = 1;
+  }, id);
+}
+
+export async function stampSurvived(page: Page, id: string) {
+  return page.evaluate((id) => {
+    const el = document.querySelector(`input[data-id="${id}"]`) as
+      | (HTMLInputElement & { _stamp?: number })
+      | null;
+    return !!(el && el._stamp);
+  }, id);
+}

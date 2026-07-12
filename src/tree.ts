@@ -27,8 +27,10 @@ type IncomingMutation = Partial<Record<(typeof MUTABLE_FIELDS)[number], unknown>
 
 export class TodoTree {
   storage: DurableObjectStorage;
+  state: DurableObjectState;
 
   constructor(state: DurableObjectState) {
+    this.state = state;
     this.storage = state.storage;
   }
 
@@ -41,7 +43,52 @@ export class TodoTree {
     if (request.method === "POST" && pathname === "/scratchpad/mutations") {
       return this.applyMutations(request);
     }
+    if (pathname === "/scratchpad/socket") {
+      return this.openSocket(request);
+    }
     return new Response("not found", { status: 404 });
+  }
+
+  // ── Live sync: one socket per open tab, every applied batch fanned out ──
+  //
+  // Hibernatable (state.acceptWebSocket, not server.accept): a scratchpad sits idle
+  // for hours at a time, and the hibernation API lets the DO be evicted from memory
+  // while its sockets stay open, waking only when something actually arrives.
+  //
+  // Each socket is tagged with its tabID, so a batch is never echoed back to the tab
+  // that sent it — that tab already applied it optimistically, and re-applying would
+  // cost it a render, and with it the caret.
+  openSocket(request: Request): Response {
+    if (request.headers.get("Upgrade") !== "websocket") {
+      return new Response("expected websocket", { status: 426 });
+    }
+    const tabID = new URL(request.url).searchParams.get("tab") ?? "";
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    this.state.acceptWebSocket(server, [tabID]);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  // Clients never send over the socket — writes still go over POST, where the
+  // outbox can retry them. The socket is a read channel only. Both handlers exist
+  // because the hibernation API requires them to route a woken event.
+  webSocketMessage(_ws: WebSocket, _message: string | ArrayBuffer): void {}
+  webSocketClose(ws: WebSocket, code: number, reason: string): void {
+    ws.close(code, reason);
+  }
+
+  // Fan a freshly-applied batch out to every tab except the one that made it.
+  broadcast(tabID: string, payload: unknown): void {
+    const message = JSON.stringify(payload);
+    for (const ws of this.state.getWebSockets()) {
+      if (tabID && this.state.getTags(ws).includes(tabID)) continue;
+      try {
+        ws.send(message);
+      } catch {
+        // A socket that died between getWebSockets() and send() is not our problem;
+        // the client reconnects and resyncs.
+      }
+    }
   }
 
   // GET /scratchpad/tree → { treeRevision, nodes: [...stored nodes] }.
@@ -51,8 +98,16 @@ export class TodoTree {
     return Response.json({ treeRevision, nodes });
   }
 
-  // POST /scratchpad/mutations → apply a batch atomically, return { treeRevision }.
+  // POST /scratchpad/mutations?tab=<tabID> → apply a batch atomically, fan it out to
+  // the other tabs, return { treeRevision }.
+  //
+  // `tab` rides in the query string rather than a header because the client's
+  // last-gasp flush goes out via navigator.sendBeacon(), which cannot set headers.
+  // It is optional: a batch with no tab (the test helper, curl) is simply broadcast
+  // to everyone.
   async applyMutations(request: Request): Promise<Response> {
+    const tabID = new URL(request.url).searchParams.get("tab") ?? "";
+
     let batch: unknown;
     try {
       batch = await request.json();
@@ -69,6 +124,8 @@ export class TodoTree {
 
     const treeRevision = ((await this.storage.get<number>(REVISION_KEY)) ?? 0) + 1;
     await this.storage.put(REVISION_KEY, treeRevision);
+
+    this.broadcast(tabID, { treeRevision, batch });
     return Response.json({ treeRevision });
   }
 
