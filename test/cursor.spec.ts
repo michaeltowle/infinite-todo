@@ -15,49 +15,8 @@
 // of scope and belong in their own spec; Backspace appears only where its whole
 // purpose is deciding where the caret lands.
 
-import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
-
-type SeedNode = {
-  id: string;
-  parentID: string | null;
-  position: number;
-  checked: boolean;
-  keyboardText: string;
-};
-
-const node = (
-  id: string,
-  parentID: string | null,
-  position: number,
-  checked: boolean,
-  keyboardText: string,
-): SeedNode => ({ id, parentID, position, checked, keyboardText });
-
-// Wipe the tree and lay down a known one. Goes through the real mutations API —
-// no test-only route, no direct storage access, nothing that exists in production
-// solely to serve tests.
-//
-// A *known* tree, not merely an empty one: seedIfEmpty() drops a blank todo into an
-// empty tree, so "empty" is not a stable starting state. Always wipe, then seed,
-// then load the page.
-async function layTree(request: APIRequestContext, nodes: SeedNode[]) {
-  const existing: { nodes: SeedNode[] } = await (await request.get('/scratchpad/tree')).json();
-  if (existing.nodes.length) {
-    await request.post('/scratchpad/mutations', {
-      data: existing.nodes.map((n) => ({ op: 'delete', id: n.id })),
-    });
-  }
-  if (nodes.length) {
-    await request.post('/scratchpad/mutations', {
-      data: nodes.map((n) => ({ op: 'create', ...n })),
-    });
-  }
-}
-
-async function open(page: Page, expectedRows: number) {
-  await page.goto('/scratchpad');
-  await expect(page.locator('.todo-row')).toHaveCount(expectedRows);
-}
+import { test, expect, type Page } from '@playwright/test';
+import { layTree, node, open } from './helpers';
 
 // The cursor, read straight off the DOM.
 async function cursor(page: Page) {

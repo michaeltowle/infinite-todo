@@ -25,6 +25,7 @@ export function clientMain() {
   const INDENT = 28;
   const FONT = "16px -apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif";
   const DEBOUNCE_MS = 400;
+  const RETRY_MS = 500;
 
   const list = document.getElementById('todo-container') as HTMLElement;
   const scroll = document.getElementById('scroll') as HTMLElement;
@@ -47,25 +48,85 @@ export function clientMain() {
       .catch(() => {});
   }
 
+  // ── Outbox: every write leaves through here, in order, and is never dropped ──
+  // One request in flight at a time, FIFO, retried until it lands. Ordering is not a
+  // nicety: an `edit` that overtakes the `create` of its own node arrives at a DO
+  // that has never heard of that node, hits `if (!existing) return`, and is thrown
+  // away. And a failed POST used to vanish just as quietly — the old code ended in
+  // .catch(() => {}), which made a dropped write indistinguishable from a saved one.
+  const outbox: Mutation[][] = [];
+  let draining = false;
+
   function postMutations(batch: Mutation[]) {
-    fetch('/scratchpad/mutations', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(batch),
-    })
-      .then((r) => r.json() as Promise<{ treeRevision?: number }>)
-      .then((d) => {
-        if (d && typeof d.treeRevision === 'number')
-          treeRevision = d.treeRevision;
-      })
-      .catch(() => {});
+    outbox.push(batch);
+    drainOutbox();
+  }
+
+  async function drainOutbox() {
+    if (draining) return;
+    draining = true;
+    while (outbox.length) {
+      try {
+        const r = await fetch('/scratchpad/mutations', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(outbox[0]),
+        });
+        if (!r.ok) throw new Error('mutations POST: ' + r.status);
+        const d = (await r.json()) as { treeRevision?: number };
+        if (typeof d.treeRevision === 'number') treeRevision = d.treeRevision;
+        outbox.shift(); // only now is the batch safe to forget
+      } catch (_) {
+        await new Promise((done) => setTimeout(done, RETRY_MS));
+      }
+    }
+    draining = false;
   }
 
   // Apply a mutation to the local mirror exactly as the DO does, then persist.
+  // Anything still parked on a debounce timer is flushed into the same batch first,
+  // so a command can never race ahead of the text that was typed before it.
   function commit(batch: Mutation[]) {
-    for (const m of batch) applyLocal(m);
-    postMutations(batch);
+    const all = flushEdits().concat(batch);
+    for (const m of all) applyLocal(m);
+    postMutations(all);
   }
+
+  // Typing parks its text in a setTimeout (see onInput). Anything that must not lose
+  // it — issuing a command, leaving the page — drains those timers through here and
+  // gets the mutations they were going to send.
+  function flushEdits(): Mutation[] {
+    const batch: Mutation[] = [];
+    for (const [id, timer] of editTimers) {
+      clearTimeout(timer);
+      const n = nodesById.get(id);
+      if (n) batch.push({ op: 'edit', id: id, keyboardText: n.keyboardText });
+    }
+    editTimers.clear();
+    return batch;
+  }
+
+  // The last chance to save. A page can go away between a keystroke and the debounce
+  // firing, and a fetch() started during unload is not guaranteed to outlive the page
+  // — sendBeacon is, which is the entire reason it exists. Everything still unsent
+  // goes out in one final payload: whatever is parked on the timers, plus the outbox
+  // itself in case a retry was mid-wait. Re-sending a mutation the DO already applied
+  // is harmless — an `edit` sets a field to the value it already holds, and a `create`
+  // re-puts an identical node.
+  function flushOnExit() {
+    const unsent = ([] as Mutation[]).concat(...outbox).concat(flushEdits());
+    if (!unsent.length) return;
+    navigator.sendBeacon(
+      '/scratchpad/mutations',
+      new Blob([JSON.stringify(unsent)], { type: 'application/json' }),
+    );
+  }
+  // Both, deliberately: pagehide is the reliable desktop signal, and visibilitychange
+  // is the one mobile Safari actually fires when the user switches away for good.
+  window.addEventListener('pagehide', flushOnExit);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushOnExit();
+  });
   function applyLocal(m: Mutation) {
     if (m.op === 'create') {
       nodesById.set(m.id, {
