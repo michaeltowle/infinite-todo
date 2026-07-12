@@ -11,16 +11,15 @@
 //      why it sits in its own project (tsconfig.client.json) — the two global
 //      type sets collide (both declare Response, fetch, WebSocket, …).
 //
-// LAST_DEPLOYMENT_TIMESTAMP and QUOTES are inlined into the page as globals by
-// page(), so they are declared here rather than imported (a runtime import would
-// not survive toString()).
+// LAST_DEPLOYMENT_TIMESTAMP is inlined into the page as a global by page(), so it
+// is declared here rather than imported (a runtime import would not survive
+// toString()).
 //
 // Layers are kept separate: a data/tree mirror, a walk() projection, an isolated
 // cursor module, and a command layer that translates keystrokes into tree
 // mutations. optparse is a stub (see optparse(), below).
 
 declare const LAST_DEPLOYMENT_TIMESTAMP: DeploymentStamp;
-declare const QUOTES: { quoteText: string; quoteAuthor: string }[];
 
 export function clientMain() {
   const INDENT = 28;
@@ -305,7 +304,7 @@ export function clientMain() {
     // toggle updates the one .todo-checked in place, leaving the caret untouched.
     const root = rootOf(id);
     if (val && root && fullyChecked(root)) {
-      seedIfEmpty(); // if that was the last visible tree, drop in a fresh quote
+      seedIfEmpty(); // if that was the last visible tree, drop in a blank line
       render();
       return;
     }
@@ -594,14 +593,10 @@ export function clientMain() {
   onActionPill('copy-as-json-nested-object-tree', nestedTree);
 
   // ── Auto-seed: keep the scratchpad from becoming a dead end ──
-  // Compose a todo line from a quote (currently a one-item list). Format
-  // matches the approved sample: "<quoteText>" -- <quoteAuthor>.
-  function quoteLine() {
-    const q = QUOTES[Math.floor(Math.random() * QUOTES.length)];
-    return q ? '"' + q.quoteText + '" -- ' + q.quoteAuthor : '';
-  }
-  // When nothing is visible (fresh scratchpad, or every tree checked off and
-  // hidden), drop in a new todo seeded from a quote. Caller re-renders.
+  // With nothing visible (fresh scratchpad, or every tree checked off and so
+  // hidden by walk()) no row renders, and since every keystroke handler is
+  // delegated off an input[data-id] target, there would be nothing to type into
+  // and no way to add a line. So drop in one blank todo. Caller re-renders.
   function seedIfEmpty() {
     if (walk().length > 0) return;
     const roots = childrenOf(null);
@@ -613,7 +608,7 @@ export function clientMain() {
         parentID: null,
         position: between(lastPos, null),
         checked: false,
-        keyboardText: quoteLine(),
+        keyboardText: '',
       },
     ]);
   }

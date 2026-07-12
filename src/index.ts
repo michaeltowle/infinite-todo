@@ -15,11 +15,6 @@ import iconSvg from './scratchpad-pencil-icon.svg';
 // written by scripts/generate-deployment-timestamp.mts. Rendered into the info-pills.
 import { lastDeploymentTimestamp } from './last-deployment-timestamp.ts';
 
-// Personality quotes ({ quoteText, quoteAuthor } POJOs). Bundled at build time
-// and inlined into the page as QUOTES; used to seed a fresh todo when the
-// scratchpad empties out.
-import quotes from '../personality/quotes.json';
-
 // The browser client. Imported for its *source*, not its behaviour — page()
 // serializes it with toString() and inlines it into the page. It never runs in
 // the Worker. (See client-main.ts: it must stay self-contained.)
@@ -115,7 +110,6 @@ input::placeholder{color:#bcad90}
 // serialized body resolves it here.
 var __name = function (x) { return x; };
 var LAST_DEPLOYMENT_TIMESTAMP = ${JSON.stringify(lastDeploymentTimestamp)};
-var QUOTES = ${JSON.stringify(quotes)};
 ;(${clientMain.toString()})();
 </script>
 </body>
