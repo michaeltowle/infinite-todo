@@ -19,6 +19,9 @@
     // a gitignored dir. Nothing in .tsbuild/ is deployed.
     "composite": true,
     "emitDeclarationOnly": true,
-    "rootDir": "."
+
+    // Relative paths in a tsconfig resolve against that file's own directory, so
+    // everything in here points up and out of tsconfig/ to the repo root.
+    "rootDir": ".."
   }
 }
