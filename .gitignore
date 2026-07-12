@@ -5,3 +5,7 @@ node_modules/
 # tsc --build artifacts (declarations + .tsbuildinfo). Typecheck-only — wrangler
 # bundles the .ts sources directly, so nothing here is ever deployed.
 .tsbuild/
+
+# Playwright output (traces, screenshots, HTML report).
+test-results/
+playwright-report/

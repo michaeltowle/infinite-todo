@@ -11,6 +11,7 @@
   "references": [
     { "path": "./tsconfig/worker.json" },
     { "path": "./tsconfig/client.json" },
-    { "path": "./tsconfig/scripts.json" }
+    { "path": "./tsconfig/scripts.json" },
+    { "path": "./tsconfig/test.json" }
   ]
 }

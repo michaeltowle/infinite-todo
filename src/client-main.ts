@@ -194,7 +194,7 @@ export function clientMain() {
       const input = document.createElement('input');
       input.dataset.id = n.id;
       input.value = n.keyboardText || '';
-      input.placeholder = 'To-do';
+      input.placeholder = 'Todo';
 
       row.appendChild(btn);
       row.appendChild(input);

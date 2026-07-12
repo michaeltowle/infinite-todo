@@ -1,0 +1,13 @@
+// The test suite. Playwright compiles the specs itself, so this project exists only
+// so `npm run typecheck` covers them too. DOM lib because page.evaluate() callbacks
+// run in the browser; Node types for the config. No Cloudflare types — a spec talks
+// to the Worker over HTTP, never imports it.
+{
+  "extends": "./base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "outDir": "../.tsbuild/test"
+  },
+  "include": ["../test/**/*.ts", "../playwright.config.ts"]
+}

@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --build",
+    "run-test-suite": "playwright test",
     "predev": "node scripts/generate-deployment-timestamp.mts dev",
     "dev": "wrangler dev",
     "predeploy": "node scripts/generate-deployment-timestamp.mts deploy && npm run typecheck",
@@ -11,6 +12,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260712.1",
+    "@playwright/test": "^1.61.1",
     "@types/node": "^26.1.1",
     "typescript": "^7.0.2",
     "wrangler": "^4"
