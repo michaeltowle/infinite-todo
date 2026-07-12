@@ -67,7 +67,7 @@ export function clientMain() {
     postMutations(batch);
   }
   function applyLocal(m: Mutation) {
-    if (m.op === 'insert') {
+    if (m.op === 'create') {
       nodesById.set(m.id, {
         id: m.id,
         parentID: m.parentID,
@@ -75,7 +75,7 @@ export function clientMain() {
         checked: m.checked,
         keyboardText: m.keyboardText,
       });
-    } else if (m.op === 'replace' || m.op === 'move') {
+    } else if (m.op === 'edit') {
       const cur = nodesById.get(m.id);
       if (!cur) return;
       const next = { ...cur };
@@ -304,7 +304,7 @@ export function clientMain() {
         const n = nodesById.get(node.id);
         if (n)
           postMutations([
-            { op: 'replace', id: node.id, keyboardText: n.keyboardText },
+            { op: 'edit', id: node.id, keyboardText: n.keyboardText },
           ]);
         editTimers.delete(node.id);
       }, DEBOUNCE_MS),
@@ -318,7 +318,7 @@ export function clientMain() {
     const n = nodesById.get(id);
     if (!n) return;
     const val = !n.checked;
-    commit([{ op: 'replace', id: id, checked: val }]);
+    commit([{ op: 'edit', id: id, checked: val }]);
     // Checking the last open box completes the whole top-level tree, which then
     // drops out of the view (see walk()) — re-render so it disappears. Any other
     // toggle updates the one .todo-checked in place, leaving the caret untouched.
@@ -345,7 +345,7 @@ export function clientMain() {
       const lo = idx > 0 ? sibs[idx - 1].position : null;
       commit([
         {
-          op: 'insert',
+          op: 'create',
           id: nid,
           parentID: node.parentID != null ? node.parentID : null,
           position: between(lo, node.position),
@@ -360,7 +360,7 @@ export function clientMain() {
       if (kids.length) {
         commit([
           {
-            op: 'insert',
+            op: 'create',
             id: nid,
             parentID: node.id,
             position: between(null, kids[0].position),
@@ -374,7 +374,7 @@ export function clientMain() {
         const hi = idx + 1 < sibs.length ? sibs[idx + 1].position : null;
         commit([
           {
-            op: 'insert',
+            op: 'create',
             id: nid,
             parentID: node.parentID != null ? node.parentID : null,
             position: between(node.position, hi),
@@ -429,7 +429,7 @@ export function clientMain() {
     const lastPos = kids.length ? kids[kids.length - 1].position : null;
     commit([
       {
-        op: 'move',
+        op: 'edit',
         id: node.id,
         parentID: newParent.id,
         position: between(lastPos, null),
@@ -450,7 +450,7 @@ export function clientMain() {
     const hi = pidx + 1 < gsibs.length ? gsibs[pidx + 1].position : null;
     commit([
       {
-        op: 'move',
+        op: 'edit',
         id: node.id,
         parentID: grandID,
         position: between(parent.position, hi),
@@ -631,7 +631,7 @@ export function clientMain() {
     const lastPos = roots.length ? roots[roots.length - 1].position : null;
     commit([
       {
-        op: 'insert',
+        op: 'create',
         id: crypto.randomUUID(),
         parentID: null,
         position: between(lastPos, null),

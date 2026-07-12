@@ -49,7 +49,7 @@ async function layTree(request: APIRequestContext, nodes: SeedNode[]) {
   }
   if (nodes.length) {
     await request.post('/scratchpad/mutations', {
-      data: nodes.map((n) => ({ op: 'insert', ...n })),
+      data: nodes.map((n) => ({ op: 'create', ...n })),
     });
   }
 }

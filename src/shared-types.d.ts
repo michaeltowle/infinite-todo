@@ -13,22 +13,24 @@ interface Todo {
   keyboardText: string;
 }
 
-// An edit travels as a mutation, never a whole-document rewrite. The four ops
-// (insert / delete / replace / move) come from the XQuery Update Facility.
-// Modelled as a discriminated union on `op`, so the compiler knows an `insert`
-// carries a full node while a `replace`/`move` carries only the fields it means
-// to overwrite — and a `delete` carries nothing but the id.
-type Mutation = InsertMutation | PatchMutation | DeleteMutation;
+// An edit travels as a mutation, never a whole-document rewrite. Three ops, ours
+// (they were once the XQuery Update Facility's insert/delete/replace/move, but
+// `replace` and `move` were one operation to the store and only ever differed in
+// intent, so they are now the single `edit`). Modelled as a discriminated union on
+// `op`, so the compiler knows a `create` carries a full node while an `edit`
+// carries only the fields it means to overwrite — and a `delete` carries nothing
+// but the id.
+type Mutation = CreateMutation | EditMutation | DeleteMutation;
 
-interface InsertMutation extends Todo {
-  op: "insert";
+interface CreateMutation extends Todo {
+  op: "create";
 }
 
-// `replace` and `move` are the same operation to the store: patch the named
-// fields of an existing node, leave the rest alone. They differ only in intent —
-// `move` is the one that rewrites parentID/position.
-interface PatchMutation extends Partial<Omit<Todo, "id">> {
-  op: "replace" | "move";
+// Patch the named fields of an existing node, leave the rest alone. Carries
+// keyboardText when you type, checked when you click a box, and parentID +
+// position together when you indent or outdent.
+interface EditMutation extends Partial<Omit<Todo, "id">> {
+  op: "edit";
   id: string;
 }
 

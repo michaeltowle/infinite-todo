@@ -14,7 +14,7 @@
 const ELEMENT_PREFIX = "element:";
 const REVISION_KEY = "treeRevision";
 
-// Fields a `replace`/`move` mutation is allowed to overwrite on an existing node.
+// Fields an `edit` mutation is allowed to overwrite on an existing node.
 const MUTABLE_FIELDS = ["checked", "keyboardText", "parentID", "position"] as const;
 
 // What actually arrives over the wire: whatever the client posted. Every field
@@ -76,7 +76,7 @@ export class TodoTree {
     const key = ELEMENT_PREFIX + mutation.id;
 
     switch (mutation.op) {
-      case "insert": {
+      case "create": {
         await this.storage.put(key, {
           id: mutation.id,
           parentID: mutation.parentID ?? null,
@@ -86,8 +86,7 @@ export class TodoTree {
         });
         return;
       }
-      case "replace":
-      case "move": {
+      case "edit": {
         const existing = await this.storage.get<Todo>(key);
         if (!existing) return; // nothing to patch
         const patched: Record<string, unknown> = { ...existing };
