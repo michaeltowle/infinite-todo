@@ -6,8 +6,8 @@ Note: In this area, nomenclature is given as css classes, but wherever these wor
 - sidebar.double-sidebar#left-sidebar
 - sidebar.double-sidebar#right-sidebar
 - sidebar.mono-sidebar#mono-sidebar
-- pill-container.action-box
-- pill-container.info-box
+- sidebar-box.pill-container.action-box
+- sidebar-box.pill-container.info-box
 - pill.action-pill
 - pill.info-pill
 - todo-row

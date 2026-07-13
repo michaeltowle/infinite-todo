@@ -95,11 +95,11 @@ input::placeholder{color:#bcad90}
 <div id="todo-container"></div>
 <div class="sidebar double-sidebar" id="right-sidebar"></div>
 <div class="sidebar mono-sidebar" id="mono-sidebar">
-<div class="pill-container action-box">
+<div class="sidebar-box pill-container action-box">
 <button class="pill action-pill" type="button" id="copy-as-json-raw-array"><span class="pill-text-primary">copy as json</span> <span class="pill-text-secondary">raw array</span></button>
 <button class="pill action-pill" type="button" id="copy-as-json-nested-object-tree"><span class="pill-text-primary">copy as json</span> <span class="pill-text-secondary">nested object tree</span></button>
 </div>
-<div class="pill-container info-box">
+<div class="sidebar-box pill-container info-box">
 <div class="pill info-pill" id="deployed-timestamp"><span class="pill-text-primary">deployed</span> <span class="pill-text-secondary"></span></div>
 <div class="pill info-pill" id="page-edit-timestamp"><span class="pill-text-primary">page edit</span> <span class="pill-text-secondary"></span></div>
 <div class="pill info-pill" id="commit-timestamp"><span class="pill-text-primary">commit</span> <span class="pill-text-secondary"></span></div>
