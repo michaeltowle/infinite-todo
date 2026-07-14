@@ -13,6 +13,8 @@ Note: In this area, nomenclature is given as css classes, but wherever these wor
 - todo-row
 - todo-row.todo-checked
 - todo-row.data-checked
+- zero-depth-node.todo-row
+- positive-depth-node.todo-row
 - sidebar-box.pill-container.bucket-box
 - pill.bucket
 - pill.bucket.bucket-over  : drag-hover state
@@ -37,13 +39,15 @@ AREA: "TODO" terminology
 - "checked"/"unchecked" : our preferred terms for the boolean todo-checkbox value. do not use "done", "not done", "completed", etc.
 - keyboardText
 - treePlacement - parent_id plus position for updating node placement
+- zdn (zero-depth node) : todos with zero indent
+- pdn (positive-depth node) : todos with indent > 0 (i.e. todos with at least one parent)
 
 AREA: Persistence
+
 - create
 - edit
 - delete
 - outbox - ordered, retrying outbox solves the issue of an edit arriving at the DO before the create for the same todo-node
-
 
 AREA: Buckets
 - "bucket" : a drop-target day in the bucket-box. Drop a todo on one and it leaves
