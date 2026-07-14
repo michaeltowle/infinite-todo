@@ -11,14 +11,10 @@ export { TodoTree } from './tree.ts';
 // page head as a data-URI favicon — no extra route, so routing stays 404-only.
 import iconSvg from './scratchpad-pencil-icon.svg';
 
-// Build-time values (deploy time; or latest src edit + last commit for dev),
-// written by scripts/generate-deployment-timestamp.mts. Rendered into the info-pills.
-import { lastDeploymentTimestamp } from './last-deployment-timestamp.ts';
-
-// The browser client. Imported for its *source*, not its behaviour — page()
-// serializes it with toString() and inlines it into the page. It never runs in
-// the Worker. (See client-main.ts: it must stay self-contained.)
-import { clientMain } from './client-main.ts';
+// The browser client, bundled by scripts/build-client.mts and imported here as a
+// string of JS, which page() inlines into a <script>. It never runs in the Worker.
+// (It cannot: it is written against the DOM, and the Worker has no DOM.)
+import { clientBundle } from '../generated/client-bundle.ts';
 
 const API_PATHS = new Set([
   '/scratchpad/tree',
@@ -87,6 +83,15 @@ input::placeholder{color:#bcad90}
 .action-pill:hover{background:#f1e7d3}
 .pill-text-primary{color:#333;white-space:nowrap}
 .pill-text-secondary{color:#b07a30;white-space:nowrap}
+/* A bucket is a drop-target day. Drag a todo by its checkbox and let go here and it
+   leaves the board until that morning; click to tip the whole bucket back out.
+   .bucket-over is the drag-hover state — the only feedback that the drop will land. */
+.bucket{cursor:pointer;transition:background .12s}
+.bucket:hover{background:#f1e7d3}
+.bucket.bucket-over{background:#eadcbe;box-shadow:inset 0 0 0 1px #9c7a3c}
+/* The checkbox doubles as the drag handle (see render() in the client). */
+.todo-checked{cursor:grab}
+.todo-checked:active{cursor:grabbing}
 </style>
 </head>
 <body>
@@ -95,6 +100,7 @@ input::placeholder{color:#bcad90}
 <div id="todo-container"></div>
 <div class="sidebar double-sidebar" id="right-sidebar"></div>
 <div class="sidebar mono-sidebar" id="mono-sidebar">
+<div class="sidebar-box pill-container bucket-box" id="bucket-box"></div>
 <div class="sidebar-box pill-container action-box">
 <button class="pill action-pill" type="button" id="copy-as-json-raw-array"><span class="pill-text-primary">copy as json</span> <span class="pill-text-secondary">raw array</span></button>
 <button class="pill action-pill" type="button" id="copy-as-json-nested-object-tree"><span class="pill-text-primary">copy as json</span> <span class="pill-text-secondary">nested object tree</span></button>
@@ -108,13 +114,7 @@ input::placeholder{color:#bcad90}
 </div>
 </div>
 <script>
-// clientMain is serialized from the Worker bundle via toString(); wrangler's
-// esbuild wraps named functions with a keepNames __name() helper that lives in
-// module scope and isn't carried into the page. Shim it (no-op) so the
-// serialized body resolves it here.
-var __name = function (x) { return x; };
-var LAST_DEPLOYMENT_TIMESTAMP = ${JSON.stringify(lastDeploymentTimestamp)};
-;(${clientMain.toString()})();
+${clientBundle}
 </script>
 </body>
 </html>`;

@@ -1,7 +1,11 @@
-// The Worker: entry, Durable Object, generated stamp. Cloudflare globals, NO DOM.
-// It references the client project rather than compiling it, so the client's DOM
-// globals never leak in here (and vice versa) — that separation is the whole
-// reason this repo has more than one tsconfig.
+// The Worker: entry, Durable Object, generated stamp, and the generated client bundle
+// (a string of JS the Worker inlines into the page and never runs). Cloudflare
+// globals, NO DOM.
+//
+// It no longer references the client project: now that the client is bundled
+// separately rather than serialized out of this one, the Worker never imports its
+// source. The two are typechecked side by side from the root solution file, and their
+// mutually exclusive global type sets stay that way.
 {
   "extends": "./base.json",
   "compilerOptions": {
@@ -9,12 +13,12 @@
     "types": ["@cloudflare/workers-types"],
     "outDir": "../.tsbuild/worker"
   },
-  "references": [{ "path": "./client.json" }],
   "include": [
     "../src/index.ts",
     "../src/tree.ts",
     "../src/last-deployment-timestamp.ts",
     "../src/shared-types.d.ts",
-    "../src/worker-types.d.ts"
+    "../src/worker-types.d.ts",
+    "../generated/client-bundle.ts"
   ]
 }

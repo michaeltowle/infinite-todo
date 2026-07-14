@@ -1,0 +1,821 @@
+// ── Browser client ──────────────────────────────────────────────────────────
+// Bundled for the browser by scripts/build-client.mts (esbuild, IIFE) and inlined
+// into the page by the Worker. Unlike the old clientMain(), this is an ordinary
+// module: it may import freely, and it typechecks against the DOM lib rather than
+// @cloudflare/workers-types (hence its own project, tsconfig/client.json — the two
+// global type sets collide on Response, fetch, WebSocket, …).
+//
+// Layers are kept separate: pure tree functions (tree.ts), the bucket definitions
+// (buckets.ts), and here — a data/tree mirror, a render, an isolated cursor module,
+// and a command layer that translates keystrokes into tree mutations.
+
+import { lastDeploymentTimestamp } from "../last-deployment-timestamp.ts";
+import {
+  between,
+  childrenOf,
+  fullyChecked,
+  isBucketed,
+  rootOf,
+  siblingsOf,
+  subtreeIDs,
+  walk,
+} from "./tree.ts";
+import { bucketsFor, todayLocal, type Bucket } from "./buckets.ts";
+
+const INDENT = 28;
+const FONT = "16px -apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif";
+const DEBOUNCE_MS = 400;
+const RETRY_MS = 500;
+const RECONNECT_MS = 1000;
+
+// This tab's identity, for the life of the page. Every write carries it, and the
+// DO uses it to skip this tab when fanning that write out — we already applied it
+// optimistically, and re-applying would cost us a render, and with it the caret.
+// Per TAB, not per device: two tabs on one laptop are two strangers.
+const tabID = crypto.randomUUID();
+const MUTATIONS_URL = "/scratchpad/mutations?tab=" + tabID;
+
+const list = document.getElementById("todo-container") as HTMLElement;
+const scroll = document.getElementById("scroll") as HTMLElement;
+const bucketBox = document.getElementById("bucket-box") as HTMLElement;
+
+// ── Data layer: client mirror of the DO ──
+let nodesById = new Map<string, Todo>();
+let treeRevision = 0;
+let currentLines: Line[] = []; // last walk() result (document order)
+let pending: { id: string; col: number } | null = null; // cursor target after a re-render
+const editTimers = new Map<string, ReturnType<typeof setTimeout>>(); // id → debounce handle
+
+// The calendar day the page is currently projecting. Held rather than recomputed
+// per call so that every walk() in one render agrees on what "today" is, and so a
+// tab left open overnight can notice the date turn over (see watchForMidnight).
+let today = todayLocal();
+
+function loadTree() {
+  return fetch("/scratchpad/tree")
+    .then((r) => r.json() as Promise<{ treeRevision: number; nodes: Todo[] }>)
+    .then((data) => {
+      treeRevision = data.treeRevision || 0;
+      nodesById = new Map();
+      for (const n of data.nodes) nodesById.set(n.id, n);
+    })
+    .catch(() => {});
+}
+
+// ── Outbox: every write leaves through here, in order, and is never dropped ──
+// One request in flight at a time, FIFO, retried until it lands. Ordering is not a
+// nicety: an `edit` that overtakes the `create` of its own node arrives at a DO
+// that has never heard of that node, hits `if (!existing) return`, and is thrown
+// away. And a failed POST used to vanish just as quietly.
+const outbox: Mutation[][] = [];
+let draining = false;
+
+function postMutations(batch: Mutation[]) {
+  outbox.push(batch);
+  drainOutbox();
+}
+
+async function drainOutbox() {
+  if (draining) return;
+  draining = true;
+  while (outbox.length) {
+    try {
+      const r = await fetch(MUTATIONS_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(outbox[0]),
+      });
+      if (!r.ok) throw new Error("mutations POST: " + r.status);
+      const d = (await r.json()) as { treeRevision?: number };
+      if (typeof d.treeRevision === "number") treeRevision = d.treeRevision;
+      outbox.shift(); // only now is the batch safe to forget
+    } catch (_) {
+      await new Promise((done) => setTimeout(done, RETRY_MS));
+    }
+  }
+  draining = false;
+}
+
+// Apply a mutation to the local mirror exactly as the DO does, then persist.
+// Anything still parked on a debounce timer is flushed into the same batch first,
+// so a command can never race ahead of the text that was typed before it.
+function commitLocal(batch: Mutation[]) {
+  const all = flushEdits().concat(batch);
+  for (const m of all) applyLocal(m);
+  postMutations(all);
+}
+
+// Typing parks its text in a setTimeout (see onInput). Anything that must not lose
+// it — issuing a command, leaving the page — drains those timers through here and
+// gets the mutations they were going to send.
+function flushEdits(): Mutation[] {
+  const batch: Mutation[] = [];
+  for (const [id, timer] of editTimers) {
+    clearTimeout(timer);
+    const n = nodesById.get(id);
+    if (n) batch.push({ op: "edit", id: id, keyboardText: n.keyboardText });
+  }
+  editTimers.clear();
+  return batch;
+}
+
+// The last chance to save. A page can go away between a keystroke and the debounce
+// firing, and a fetch() started during unload is not guaranteed to outlive the page
+// — sendBeacon is, which is the entire reason it exists. Re-sending a mutation the
+// DO already applied is harmless.
+function flushOnExit() {
+  const unsent = ([] as Mutation[]).concat(...outbox).concat(flushEdits());
+  if (!unsent.length) return;
+  navigator.sendBeacon(
+    MUTATIONS_URL,
+    new Blob([JSON.stringify(unsent)], { type: "application/json" }),
+  );
+}
+// Both, deliberately: pagehide is the reliable desktop signal, and visibilitychange
+// is the one mobile Safari actually fires when the user switches away for good.
+window.addEventListener("pagehide", flushOnExit);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushOnExit();
+});
+
+function applyLocal(m: Mutation) {
+  if (m.op === "create") {
+    nodesById.set(m.id, {
+      id: m.id,
+      parentID: m.parentID,
+      position: m.position,
+      checked: m.checked,
+      keyboardText: m.keyboardText,
+      hideUntil: m.hideUntil,
+    });
+  } else if (m.op === "edit") {
+    const cur = nodesById.get(m.id);
+    if (!cur) return;
+    const next = { ...cur };
+    // The mutable fields, patched one by one: a mutation overwrites exactly the
+    // fields it carries (the DO's MUTABLE_FIELDS loop, unrolled so the compiler
+    // can check each assignment).
+    if (m.checked !== undefined) next.checked = m.checked;
+    if (m.keyboardText !== undefined) next.keyboardText = m.keyboardText;
+    if (m.parentID !== undefined) next.parentID = m.parentID;
+    if (m.position !== undefined) next.position = m.position;
+    if (m.hideUntil !== undefined) next.hideUntil = m.hideUntil;
+    nodesById.set(m.id, next);
+  } else if (m.op === "delete") {
+    for (const id of subtreeIDs(nodesById, m.id)) nodesById.delete(id);
+  }
+}
+
+// ── Render ──
+function render() {
+  currentLines = walk(nodesById, today);
+  list.textContent = "";
+  const frag = document.createDocumentFragment();
+  for (const line of currentLines) {
+    const n = line.node;
+    const row = document.createElement("div");
+    row.className = "todo-row";
+    row.dataset.checked = n.checked ? "1" : "0";
+    row.style.marginLeft = line.depth * INDENT + "px";
+
+    const btn = document.createElement("button");
+    btn.className = n.checked ? "todo-checked checked" : "todo-checked";
+    btn.dataset.id = n.id;
+    btn.textContent = n.checked ? "✓" : "";
+    // The checkbox doubles as the drag handle — grab a todo by its box and drop it
+    // on a bucket. Deliberately NOT the row: a draggable ancestor breaks mouse text
+    // selection inside the child <input> in Safari and Firefox, and the caret is the
+    // thing this editor is built around. The button is not a text field, so it can
+    // carry the drag with nothing at stake. Click and drag coexist natively — a
+    // click event only fires when no drag happened.
+    btn.draggable = true;
+
+    const input = document.createElement("input");
+    input.dataset.id = n.id;
+    input.value = n.keyboardText || "";
+    input.placeholder = "Todo";
+
+    row.appendChild(btn);
+    row.appendChild(input);
+    frag.appendChild(row);
+  }
+  list.appendChild(frag);
+  renderBuckets();
+  applyPending();
+}
+
+// ── Buckets ──
+// Rebuilt on every render, because both halves of a bucket are derived: its label
+// is relative to today, and its count is a fact about the tree.
+let buckets: Bucket[] = bucketsFor();
+
+function renderBuckets() {
+  bucketBox.textContent = "";
+  const frag = document.createDocumentFragment();
+  for (const b of buckets) {
+    const el = document.createElement("div");
+    el.className = "pill bucket";
+    el.id = b.id;
+    el.dataset.hideUntil = b.hideUntil;
+
+    const label = document.createElement("span");
+    label.className = "pill-text-primary";
+    label.textContent = b.label;
+
+    // The count is what makes the bucket a plan rather than a hole to drop things
+    // into: it says how much of next Wednesday you have already spent.
+    const count = document.createElement("span");
+    count.className = "pill-text-secondary";
+    const n = countIn(b);
+    count.textContent = n ? String(n) : "";
+
+    el.appendChild(label);
+    el.appendChild(count);
+    frag.appendChild(el);
+  }
+  bucketBox.appendChild(frag);
+}
+
+// How many todo-trees are waiting in a bucket. Top-level nodes only — a bucketed
+// todo takes its subtree with it, and counting the descendants too would report a
+// three-line tree as three separate things to do.
+function countIn(b: Bucket): number {
+  let n = 0;
+  for (const node of childrenOf(nodesById, null)) {
+    if (node.hideUntil === b.hideUntil && !fullyChecked(nodesById, node)) n++;
+  }
+  return n;
+}
+
+// Drop a todo into a bucket. The node keeps everything else — its text, its
+// children, its place in the tree — and simply stops being projected until its day
+// (see walk()). Nothing is moved and nothing is archived, which is why coming back
+// out is just as cheap.
+function bucketTodo(id: string, hideUntil: string) {
+  const node = nodesById.get(id);
+  if (!node) return;
+  commitLocal([{ op: "edit", id: id, hideUntil: hideUntil }]);
+  seedIfEmpty(); // bucketing the last visible tree would otherwise leave a dead page
+  render();
+}
+
+// Click a bucket to tip it back onto the board. The one way out, and the reason a
+// mis-drop (especially onto Someday, which never arrives on its own) is a shrug
+// rather than a loss. Empties the whole bucket — there is no per-todo peek yet.
+function emptyBucket(b: Bucket) {
+  const stranded = childrenOf(nodesById, null).filter(
+    (n) => n.hideUntil === b.hideUntil,
+  );
+  if (!stranded.length) return;
+  commitLocal(
+    stranded.map((n): Mutation => ({ op: "edit", id: n.id, hideUntil: null })),
+  );
+  render();
+}
+
+bucketBox.addEventListener("dragover", (e) => {
+  const el = (e.target as HTMLElement).closest<HTMLElement>(".bucket");
+  if (!el) return;
+  e.preventDefault(); // the default is "reject the drop"; this is what permits it
+  e.dataTransfer!.dropEffect = "move";
+  el.classList.add("bucket-over");
+});
+bucketBox.addEventListener("dragleave", (e) => {
+  const el = (e.target as HTMLElement).closest<HTMLElement>(".bucket");
+  if (el) el.classList.remove("bucket-over");
+});
+bucketBox.addEventListener("drop", (e) => {
+  const el = (e.target as HTMLElement).closest<HTMLElement>(".bucket");
+  if (!el) return;
+  e.preventDefault();
+  el.classList.remove("bucket-over");
+  const id = e.dataTransfer!.getData("text/plain");
+  const hideUntil = el.dataset.hideUntil;
+  if (id && hideUntil) bucketTodo(id, hideUntil);
+});
+bucketBox.addEventListener("click", (e) => {
+  const el = (e.target as HTMLElement).closest<HTMLElement>(".bucket");
+  if (!el) return;
+  const b = buckets.find((x) => x.id === el.id);
+  if (b) emptyBucket(b);
+});
+
+// A tab left open across midnight is projecting yesterday: the buckets still say
+// "Tomorrow" for a day that has arrived, and the todos due this morning are still
+// hidden. Notice the turnover and re-project. A minute's granularity is plenty —
+// nothing here is to the second — and the check is a string compare.
+function watchForMidnight() {
+  setInterval(() => {
+    const now = todayLocal();
+    if (now === today) return;
+    today = now;
+    buckets = bucketsFor();
+    render();
+  }, 60_000);
+}
+
+// ── Cursor module (isolated): focus + caret only. Never touches data. ──
+function applyPending() {
+  if (!pending) return;
+  focusLine(pending.id, pending.col);
+  pending = null;
+}
+function focusLine(id: string, col: number | null) {
+  const el = list.querySelector<HTMLInputElement>('input[data-id="' + id + '"]');
+  if (!el) return;
+  el.focus();
+  const c = col == null ? el.value.length : col;
+  try {
+    el.setSelectionRange(c, c);
+  } catch (_) {}
+}
+// The canvas is cached on the function object itself, so the measuring context is
+// built once rather than per keystroke.
+function measureCtx() {
+  const cache = measureCtx as { _c?: HTMLCanvasElement };
+  const c = cache._c || (cache._c = document.createElement("canvas"));
+  const ctx = c.getContext("2d")!;
+  ctx.font = FONT;
+  return ctx;
+}
+// The caret's visual x-position: the line's indent plus the width of the text
+// sitting to the left of the caret (canvas text metrics).
+function caretX(line: Line, col: number) {
+  const text = nodesById.get(line.node.id)?.keyboardText || "";
+  return line.depth * INDENT + measureCtx().measureText(text.slice(0, col)).width;
+}
+
+// The x the caret is *trying* to hold while arrowing, in caretX() coordinates. Held
+// across a run of consecutive vertical arrows, so a line too short to reach it
+// clamps where the caret lands without narrowing the rest of the run. Any other
+// cursor movement ends the run and clears this; null means "no run in progress".
+let desiredX: number | null = null;
+
+// Move the caret to `to`, at whichever column sits closest to the x being held.
+function moveCaret(from: Line, to: Line, col: number) {
+  const ctx = measureCtx();
+  const targetX = desiredX ?? caretX(from, col);
+  const toText = nodesById.get(to.node.id)?.keyboardText || "";
+  let best = 0;
+  let bestDiff = Infinity;
+  for (let i = 0; i <= toText.length; i++) {
+    const x = to.depth * INDENT + ctx.measureText(toText.slice(0, i)).width;
+    const d = Math.abs(x - targetX);
+    if (d < bestDiff) {
+      bestDiff = d;
+      best = i;
+    }
+  }
+  desiredX = targetX; // the run keeps aiming at the x it started with
+  focusLine(to.node.id, best);
+}
+function blankFocus(e: MouseEvent) {
+  const t = e.target as HTMLElement;
+  desiredX = null; // a mousedown places the caret by hand, ending any arrow run
+  if (t.tagName === "INPUT" || t.tagName === "BUTTON") return;
+  if (t.closest("#mono-sidebar")) return; // the sidebar's own clicks are not the page's
+  const inputs = list.querySelectorAll<HTMLInputElement>("input[data-id]");
+  const last = inputs[inputs.length - 1];
+  if (last) {
+    e.preventDefault();
+    last.focus();
+    last.setSelectionRange(last.value.length, last.value.length);
+  }
+}
+
+// ── Live sync (read channel) ──
+// The DO fans every applied batch out to the other open tabs, and this is where they
+// land. Nothing is ever SENT over this socket: writes still go out as POSTs through
+// the outbox, which knows how to retry them.
+let socket: WebSocket | null = null;
+let hasConnected = false;
+
+function connectSocket() {
+  const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+  socket = new WebSocket(
+    scheme + "//" + location.host + "/scratchpad/socket?tab=" + tabID,
+  );
+  socket.addEventListener("open", () => {
+    // A *re*connect means we were deaf for a while, so the mirror cannot be trusted:
+    // refetch the whole tree rather than trying to replay what we missed.
+    if (hasConnected) refetch();
+    hasConnected = true;
+  });
+  socket.addEventListener("message", (e) => {
+    const msg = JSON.parse(e.data as string) as {
+      treeRevision?: number;
+      batch?: Mutation[];
+    };
+    if (typeof msg.treeRevision === "number") treeRevision = msg.treeRevision;
+    if (msg.batch) applyRemote(msg.batch);
+  });
+  socket.addEventListener("close", () => {
+    socket = null;
+    setTimeout(connectSocket, RECONNECT_MS);
+  });
+}
+
+function refetch() {
+  loadTree().then(() => {
+    seedIfEmpty();
+    repositionCursorAfterRender();
+  });
+}
+
+// A batch somebody else made. Apply it to the mirror exactly as the DO did, then
+// re-render — holding the cursor, because render() rebuilds every row and would
+// otherwise annihilate focus and caret mid-word.
+//
+// Note what is NOT here: seedIfEmpty(). Seeding is a derived action — "nothing is
+// visible, so drop in a blank line" — and if every device drew that conclusion
+// independently, every device would seed.
+function applyRemote(batch: Mutation[]) {
+  for (const m of batch) {
+    // Another device's text must never land in a line we have unsent text for — it
+    // would overwrite the word under the user's fingers. A live debounce timer is
+    // exactly that condition. Hold the text back and let the rest of the mutation
+    // (checked, treePlacement, hideUntil) through.
+    if (m.op === "edit" && m.keyboardText !== undefined && editTimers.has(m.id)) {
+      const { keyboardText, ...withoutText } = m;
+      applyLocal(withoutText);
+      continue;
+    }
+    applyLocal(m);
+  }
+  repositionCursorAfterRender();
+}
+
+// render() destroys focus and caret by construction, so a re-render we did not ask
+// for has to state where the cursor should end up first.
+function repositionCursorAfterRender() {
+  const el = document.activeElement as HTMLInputElement | null;
+  if (el && el.tagName === "INPUT" && el.dataset.id) {
+    pending = { id: el.dataset.id, col: el.selectionStart ?? 0 };
+  }
+  render();
+}
+
+// ── optparse (STUB) ──
+// Real optparse (type detection from input + opts + 2nd-order effects) lands later.
+// For now every line is a todo-line-item and this hook does nothing.
+function optparse(text: string) {
+  return { type: "todo-line-item" };
+}
+
+// ── Command layer: keystroke → tree mutation(s) + cursor target ──
+function lineOf(id: string) {
+  return currentLines.find((l) => l.node.id === id);
+}
+
+function onInput(node: Todo, input: HTMLInputElement) {
+  const val = input.value;
+  const cur = nodesById.get(node.id);
+  if (cur) nodesById.set(node.id, { ...cur, keyboardText: val });
+  clearTimeout(editTimers.get(node.id));
+  editTimers.set(
+    node.id,
+    setTimeout(() => {
+      const n = nodesById.get(node.id);
+      if (n)
+        postMutations([{ op: "edit", id: node.id, keyboardText: n.keyboardText }]);
+      editTimers.delete(node.id);
+    }, DEBOUNCE_MS),
+  );
+  optparse(val); // stubbed
+}
+
+function onToggle(btn: HTMLButtonElement) {
+  const id = btn.dataset.id;
+  if (!id) return;
+  const n = nodesById.get(id);
+  if (!n) return;
+  const val = !n.checked;
+  commitLocal([{ op: "edit", id: id, checked: val }]);
+  // Checking the last open box completes the whole top-level tree, which then drops
+  // out of the view (see walk()) — re-render so it disappears. Any other toggle
+  // updates the one .todo-checked in place, leaving the caret untouched. Either way
+  // the bucket counts may have moved, so they are redrawn.
+  const root = rootOf(nodesById, id);
+  if (val && root && fullyChecked(nodesById, root)) {
+    seedIfEmpty(); // if that was the last visible tree, drop in a blank line
+    render();
+    return;
+  }
+  btn.className = val ? "todo-checked checked" : "todo-checked";
+  btn.textContent = val ? "✓" : "";
+  const row = btn.closest<HTMLElement>(".todo-row");
+  if (row) row.dataset.checked = val ? "1" : "0";
+  renderBuckets();
+}
+
+function onEnter(line: Line, input: HTMLInputElement) {
+  const node = line.node;
+  const col = input.selectionStart ?? 0;
+  const nid = crypto.randomUUID();
+  if (col === 0 && input.value !== "") {
+    // Caret at start of a non-empty line: new empty line ABOVE (prev sibling).
+    const sibs = siblingsOf(nodesById, node);
+    const idx = sibs.findIndex((s) => s.id === node.id);
+    const lo = idx > 0 ? sibs[idx - 1].position : null;
+    commitLocal([
+      {
+        op: "create",
+        id: nid,
+        parentID: node.parentID != null ? node.parentID : null,
+        position: between(lo, node.position),
+        checked: false,
+        keyboardText: "",
+        hideUntil: null,
+      },
+    ]);
+    pending = { id: node.id, col: 0 }; // caret stays on current line
+  } else {
+    // New empty line BELOW: first child if the node has children, else next sibling.
+    const kids = childrenOf(nodesById, node.id);
+    if (kids.length) {
+      commitLocal([
+        {
+          op: "create",
+          id: nid,
+          parentID: node.id,
+          position: between(null, kids[0].position),
+          checked: false,
+          keyboardText: "",
+          hideUntil: null,
+        },
+      ]);
+    } else {
+      const sibs = siblingsOf(nodesById, node);
+      const idx = sibs.findIndex((s) => s.id === node.id);
+      const hi = idx + 1 < sibs.length ? sibs[idx + 1].position : null;
+      commitLocal([
+        {
+          op: "create",
+          id: nid,
+          parentID: node.parentID != null ? node.parentID : null,
+          position: between(node.position, hi),
+          checked: false,
+          keyboardText: "",
+          hideUntil: null,
+        },
+      ]);
+    }
+    pending = { id: nid, col: 0 };
+  }
+  render();
+}
+
+function onBackspaceEmpty(line: Line, input: HTMLInputElement) {
+  if (input.value !== "") return false;
+  if (nodesById.size <= 1) return false;
+  const i = currentLines.findIndex((l) => l.node.id === line.node.id);
+  if (i <= 0) return false; // don't delete the first line
+  if (childrenOf(nodesById, line.node.id).length) return false; // don't delete a parent
+  const prev = currentLines[i - 1];
+  commitLocal([{ op: "delete", id: line.node.id }]);
+  const prevText = nodesById.get(prev.node.id)?.keyboardText || "";
+  pending = { id: prev.node.id, col: prevText.length };
+  render();
+  return true;
+}
+
+// The topmost visible line has nothing above to merge into, so onBackspaceEmpty
+// leaves it alone. When it's empty and childless, delete it instead and drop the
+// caret onto the line that rises to take its place. No-op on the sole line.
+function onDeleteTopmostEmpty(line: Line, input: HTMLInputElement) {
+  if (input.value !== "") return false;
+  const i = currentLines.findIndex((l) => l.node.id === line.node.id);
+  if (i !== 0) return false; // only the topmost line
+  if (currentLines.length <= 1) return false; // keep at least one line
+  if (childrenOf(nodesById, line.node.id).length) return false; // don't delete a parent
+  const next = currentLines[1];
+  commitLocal([{ op: "delete", id: line.node.id }]);
+  pending = { id: next.node.id, col: 0 };
+  render();
+  return true;
+}
+
+function onIndent(line: Line, col: number) {
+  const node = line.node;
+  const sibs = siblingsOf(nodesById, node);
+  const idx = sibs.findIndex((s) => s.id === node.id);
+  if (idx <= 0) return; // no previous sibling → nothing to indent under
+  const newParent = sibs[idx - 1];
+  const kids = childrenOf(nodesById, newParent.id);
+  const lastPos = kids.length ? kids[kids.length - 1].position : null;
+  commitLocal([
+    {
+      op: "edit",
+      id: node.id,
+      parentID: newParent.id,
+      position: between(lastPos, null),
+    },
+  ]);
+  pending = { id: node.id, col: col };
+  render();
+}
+
+function onOutdent(line: Line, col: number) {
+  const node = line.node;
+  if (node.parentID == null) return; // already at root
+  const parent = nodesById.get(node.parentID);
+  if (!parent) return;
+  const grandID = parent.parentID != null ? parent.parentID : null;
+  const gsibs = siblingsOf(nodesById, parent);
+  const pidx = gsibs.findIndex((s) => s.id === parent.id);
+  const hi = pidx + 1 < gsibs.length ? gsibs[pidx + 1].position : null;
+  commitLocal([
+    {
+      op: "edit",
+      id: node.id,
+      parentID: grandID,
+      position: between(parent.position, hi),
+    },
+  ]);
+  pending = { id: node.id, col: col };
+  render();
+}
+
+function onArrow(dir: "up" | "down", line: Line, input: HTMLInputElement) {
+  const i = currentLines.findIndex((l) => l.node.id === line.node.id);
+  const j = dir === "up" ? i - 1 : i + 1;
+  if (j < 0 || j >= currentLines.length) {
+    // No line in that direction: snap the caret to the far edge of this line.
+    const col = dir === "down" ? input.value.length : 0;
+    input.setSelectionRange(col, col);
+    desiredX = caretX(line, col);
+    return;
+  }
+  moveCaret(currentLines[i], currentLines[j], input.selectionStart ?? 0);
+}
+
+// ── Event wiring (delegated, so re-renders don't re-attach) ──
+list.addEventListener("input", (e) => {
+  const t = e.target as HTMLInputElement;
+  if (t.dataset && t.dataset.id && t.tagName === "INPUT") {
+    desiredX = null; // paste and IME move the caret without ever firing keydown
+    const line = lineOf(t.dataset.id);
+    if (line) onInput(line.node, t);
+  }
+});
+list.addEventListener("keydown", (e) => {
+  const t = e.target as HTMLInputElement;
+  if (!(t.dataset && t.dataset.id && t.tagName === "INPUT")) return;
+  const line = lineOf(t.dataset.id);
+  if (!line) return;
+  // Only a run of vertical arrows holds a desired x; every other key moves the caret
+  // on its own terms and ends the run.
+  if (e.key !== "ArrowUp" && e.key !== "ArrowDown") desiredX = null;
+  if (e.key === "Enter") {
+    e.preventDefault();
+    onEnter(line, t);
+  } else if (e.key === "Backspace" && t.value === "") {
+    if (onBackspaceEmpty(line, t) || onDeleteTopmostEmpty(line, t)) e.preventDefault();
+  } else if (e.key === "Delete" && t.value === "") {
+    if (onDeleteTopmostEmpty(line, t)) e.preventDefault();
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    onArrow("up", line, t);
+  } else if (e.key === "ArrowDown") {
+    e.preventDefault();
+    onArrow("down", line, t);
+  } else if (e.key === "Tab") {
+    e.preventDefault();
+    if (e.shiftKey) onOutdent(line, t.selectionStart ?? 0);
+    else onIndent(line, t.selectionStart ?? 0);
+  }
+});
+list.addEventListener("click", (e) => {
+  const t = e.target as HTMLElement;
+  const btn = t.closest ? t.closest<HTMLButtonElement>("button[data-id]") : null;
+  if (btn) onToggle(btn);
+});
+// The drag carries only the node id; the bucket does the rest. A subtree travels
+// with its root, so there is nothing else to say.
+list.addEventListener("dragstart", (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-id]");
+  if (!btn || !btn.dataset.id) return;
+  e.dataTransfer!.setData("text/plain", btn.dataset.id);
+  e.dataTransfer!.effectAllowed = "move";
+});
+scroll.addEventListener("mousedown", blankFocus);
+
+// ── Dev helper: the action-box's two action-pills copy the on-page todos as JSON.
+// Both cover exactly the nodes visible on the page — completed trees and bucketed
+// trees, which dropped out in walk(), are excluded.
+function rawNodes() {
+  return walk(nodesById, today).map((l) => l.node);
+}
+function nestedTree() {
+  return (function build(parentID: string | null, depth: number): unknown[] {
+    return childrenOf(nodesById, parentID)
+      .filter(
+        (n) =>
+          !(depth === 0 && (fullyChecked(nodesById, n) || isBucketed(n, today))),
+      )
+      .map((n) => ({
+        id: n.id,
+        checked: n.checked,
+        keyboardText: n.keyboardText,
+        position: n.position,
+        children: build(n.id, depth + 1),
+      }));
+  })(null, 0);
+}
+
+// ── Last deployment timestamp: the info-box ships all four info-pills in the page;
+// this fills each one's secondary text by id and drops the pills that don't apply.
+// Live keeps #deployed-timestamp, localhost keeps #page-edit-timestamp and
+// #commit-timestamp; #on-branch-branchname survives both.
+(function renderLastDeploymentTimestamp() {
+  const s = lastDeploymentTimestamp;
+  // Format "2026-07-08" + "09:52:36" → "9:52am on Jul 8"
+  function formatStampTime(date: string, time: string) {
+    const [y, m, d] = date.split("-");
+    const [h, min] = time.split(":");
+    const hNum = parseInt(h, 10);
+    const ampm = hNum < 12 ? "am" : "pm";
+    const h12 = hNum === 0 ? 12 : hNum > 12 ? hNum - 12 : hNum;
+    const months = [
+      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    const mName = months[parseInt(m, 10) - 1];
+    const dNum = parseInt(d, 10);
+    return h12 + ":" + min + ampm + " on " + mName + " " + dNum;
+  }
+  function fillPill(id: string, value: string) {
+    const pill = document.getElementById(id);
+    if (!pill) return;
+    const slot = pill.querySelector(".pill-text-secondary");
+    if (slot) slot.textContent = value;
+  }
+  function dropPill(id: string) {
+    const pill = document.getElementById(id);
+    if (pill) pill.remove();
+  }
+  fillPill("on-branch-branchname", "#" + s.branch);
+  if (window.location.hostname === "localhost") {
+    fillPill("page-edit-timestamp", formatStampTime(s.pageEdit.date, s.pageEdit.time));
+    fillPill("commit-timestamp", formatStampTime(s.commit.date, s.commit.time));
+    dropPill("deployed-timestamp");
+  } else {
+    fillPill("deployed-timestamp", formatStampTime(s.deploy.date, s.deploy.time));
+    dropPill("page-edit-timestamp");
+    dropPill("commit-timestamp");
+  }
+})();
+
+// Tab title mirrors the last-deployment-timestamp's hostname check: live is
+// "Scratchpad", localhost is tagged so the two tabs are distinguishable.
+document.title =
+  window.location.hostname === "localhost" ? "Scratchpad — localhost" : "Scratchpad";
+
+function copyAsJSON(data: unknown) {
+  const text = JSON.stringify(data, null, 2);
+  if (navigator.clipboard) navigator.clipboard.writeText(text);
+}
+function onActionPill(id: string, build: () => unknown) {
+  const pill = document.getElementById(id);
+  if (pill) pill.addEventListener("click", () => copyAsJSON(build()));
+}
+onActionPill("copy-as-json-raw-array", rawNodes);
+onActionPill("copy-as-json-nested-object-tree", nestedTree);
+
+// ── Auto-seed: keep the scratchpad from becoming a dead end ──
+// With nothing visible (fresh scratchpad, every tree checked off, or everything
+// bucketed for later) no row renders, and since every keystroke handler is delegated
+// off an input[data-id] target, there would be nothing to type into and no way to add
+// a line. So drop in one blank todo. Caller re-renders.
+function seedIfEmpty() {
+  if (walk(nodesById, today).length > 0) return;
+  const roots = childrenOf(nodesById, null);
+  const lastPos = roots.length ? roots[roots.length - 1].position : null;
+  commitLocal([
+    {
+      op: "create",
+      // Deliberately NOT a random id, unlike every other create. Seeding is a
+      // *derived* action — "nothing is visible, so drop in a blank line" — and two
+      // tabs can reach that conclusion at the same moment. Random ids would give you
+      // two blank lines. An id derived from the revision that emptied the tree gives
+      // both tabs the same id, so the two creates collapse into one.
+      id: "blank-seed-" + treeRevision,
+      parentID: null,
+      position: between(lastPos, null),
+      checked: false,
+      keyboardText: "",
+      hideUntil: null,
+    },
+  ]);
+}
+
+// ── Boot ──
+loadTree().then(() => {
+  seedIfEmpty();
+  render();
+  const inputs = list.querySelectorAll<HTMLInputElement>("input[data-id]");
+  const last = inputs[inputs.length - 1];
+  if (last) last.focus();
+  connectSocket();
+  watchForMidnight();
+});

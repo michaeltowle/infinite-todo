@@ -24,8 +24,12 @@ export default defineConfig({
 
   // Storage lives in its own directory, so a test run can never touch the tree you
   // use in `npm run dev`. Tests still wipe and re-seed per test (see layTree).
+  // The client is a separate esbuild bundle now (generated/client-bundle.ts, which is
+  // gitignored), so it has to be built before the Worker can inline it. This command
+  // bypasses the npm scripts, so it can't lean on their pre-hooks — it builds first,
+  // by hand.
   webServer: {
-    command: `npx wrangler dev --port ${PORT} --persist-to .wrangler/test-state`,
+    command: `node scripts/build-client.mts && npx wrangler dev --port ${PORT} --persist-to .wrangler/test-state`,
     url: `http://localhost:${PORT}/scratchpad`,
     reuseExistingServer: false,
     timeout: 120_000,

@@ -1,5 +1,11 @@
-// The browser client (serialized into the page via toString()). DOM globals, NO
-// Cloudflare types — loading both would collide on Response, fetch, WebSocket, …
+// The browser client (bundled by scripts/build-client.mts, inlined into the page).
+// DOM globals, NO Cloudflare types — loading both would collide on Response, fetch,
+// WebSocket, …
+//
+// last-deployment-timestamp.ts is included here as well as in the Worker project: it
+// is plain generated data with no globals of its own, and now that the client is a
+// real module rather than a serialized function, it can simply import the stamp
+// instead of having it injected into the page as a global.
 {
   "extends": "./base.json",
   "compilerOptions": {
@@ -7,5 +13,9 @@
     "types": [],
     "outDir": "../.tsbuild/client"
   },
-  "include": ["../src/client-main.ts", "../src/shared-types.d.ts"]
+  "include": [
+    "../src/client/**/*.ts",
+    "../src/last-deployment-timestamp.ts",
+    "../src/shared-types.d.ts"
+  ]
 }

@@ -9,3 +9,8 @@ node_modules/
 # Playwright output (traces, screenshots, HTML report).
 test-results/
 playwright-report/
+
+# The bundled browser client, written by scripts/build-client.mts and imported by
+# the Worker. Rebuilt by npm run build:client (and by the dev/typecheck/deploy
+# pre-hooks), so it never needs to be committed.
+generated/

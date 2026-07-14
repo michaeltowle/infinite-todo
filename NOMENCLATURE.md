@@ -13,6 +13,9 @@ Note: In this area, nomenclature is given as css classes, but wherever these wor
 - todo-row
 - todo-row.todo-checked
 - todo-row.data-checked
+- sidebar-box.pill-container.bucket-box
+- pill.bucket
+- pill.bucket.bucket-over  : drag-hover state
 
 SUBAREA: UI Pills
 
@@ -41,3 +44,9 @@ AREA: Persistence
 - delete
 - outbox - ordered, retrying outbox solves the issue of an edit arriving at the DO before the create for the same todo-node
 
+
+AREA: Buckets
+- "bucket" : a drop-target day in the bucket-box. Drop a todo on one and it leaves
+  #todo-container until that morning, taking its subtree with it. Click a bucket to
+  tip its contents back onto the board.
+- hideUntil - the day a todo comes back. YYYY-MM-DD, "someday", or null.

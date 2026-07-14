@@ -12,15 +12,19 @@ export type StoredNode = {
   position: number;
   checked: boolean;
   keyboardText: string;
+  hideUntil?: string | null;
 };
 
+// hideUntil is trailing and optional: the great majority of trees under test are not
+// bucketed, and every spec written before buckets existed still reads correctly.
 export const node = (
   id: string,
   parentID: string | null,
   position: number,
   checked: boolean,
   keyboardText: string,
-): StoredNode => ({ id, parentID, position, checked, keyboardText });
+  hideUntil: string | null = null,
+): StoredNode => ({ id, parentID, position, checked, keyboardText, hideUntil });
 
 // Wipe the tree and lay down a known one. Goes through the real mutations API —
 // no test-only route, no direct storage access, nothing that exists in production

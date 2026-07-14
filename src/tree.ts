@@ -15,7 +15,13 @@ const ELEMENT_PREFIX = "element:";
 const REVISION_KEY = "treeRevision";
 
 // Fields an `edit` mutation is allowed to overwrite on an existing node.
-const MUTABLE_FIELDS = ["checked", "keyboardText", "parentID", "position"] as const;
+const MUTABLE_FIELDS = [
+  "checked",
+  "keyboardText",
+  "parentID",
+  "position",
+  "hideUntil",
+] as const;
 
 // What actually arrives over the wire: whatever the client posted. Every field
 // is optional and unverified — this is untrusted JSON, so the code below keeps
@@ -140,6 +146,10 @@ export class TodoTree {
           position: mutation.position,
           checked: mutation.checked ?? false,
           keyboardText: mutation.keyboardText ?? "",
+          // Nodes written before buckets existed have no hideUntil at all. That
+          // is fine and needs no migration: absent and null both read as "never
+          // bucketed" everywhere it is tested.
+          hideUntil: mutation.hideUntil ?? null,
         });
         return;
       }

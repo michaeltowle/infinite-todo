@@ -11,6 +11,11 @@ interface Todo {
   position: number;
   checked: boolean;
   keyboardText: string;
+  // The day this todo comes back, YYYY-MM-DD, or "someday" for the dateless
+  // bucket, or null for a todo that was never bucketed. A node whose hideUntil
+  // the calendar has not reached is not projected onto the page (see walk()) —
+  // it is waiting, not gone.
+  hideUntil: string | null;
 }
 
 // An edit travels as a mutation, never a whole-document rewrite. Three ops, ours
