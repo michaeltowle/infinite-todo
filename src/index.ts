@@ -83,11 +83,14 @@ input::placeholder{color:#bcad90}
 .action-pill:hover{background:#f1e7d3}
 .pill-text-primary{color:#333;white-space:nowrap}
 .pill-text-secondary{color:#b07a30;white-space:nowrap}
-/* A bucket is a drop-target day. Drag a todo by its checkbox and let go here and it
-   leaves the board until that morning; click to tip the whole bucket back out.
-   .bucket-over is the drag-hover state — the only feedback that the drop will land. */
+/* A bucket is both a view and a drop-target. Click one and #todo-container shows only
+   its todos (.bucket-active marks the one you are looking through); drag a todo by its
+   checkbox and let go here to move it into that bucket. .bucket-over is the drag-hover
+   state — the only feedback that the drop will land. */
 .bucket{cursor:pointer;transition:background .12s}
 .bucket:hover{background:#f1e7d3}
+.bucket.bucket-active{background:#efe3ca;box-shadow:inset 3px 0 0 #9c7a3c}
+.bucket.bucket-active .pill-text-primary{color:#8a5a1e;font-weight:600}
 .bucket.bucket-over{background:#eadcbe;box-shadow:inset 0 0 0 1px #9c7a3c}
 /* The checkbox doubles as the drag handle (see render() in the client). */
 .todo-checked{cursor:grab}

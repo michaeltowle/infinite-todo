@@ -14,13 +14,18 @@ import {
   between,
   childrenOf,
   fullyChecked,
-  isBucketed,
+  project,
   rootOf,
   siblingsOf,
   subtreeIDs,
-  walk,
 } from "./tree.ts";
-import { bucketsFor, todayLocal, type Bucket } from "./buckets.ts";
+import {
+  bucketsFor,
+  inBucket,
+  todayLocal,
+  type Bucket,
+  type BucketKey,
+} from "./buckets.ts";
 
 const INDENT = 28;
 const FONT = "16px -apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif";
@@ -42,12 +47,12 @@ const bucketBox = document.getElementById("bucket-box") as HTMLElement;
 // ── Data layer: client mirror of the DO ──
 let nodesById = new Map<string, Todo>();
 let treeRevision = 0;
-let currentLines: Line[] = []; // last walk() result (document order)
+let currentLines: Line[] = []; // last viewLines() result (document order)
 let pending: { id: string; col: number } | null = null; // cursor target after a re-render
 const editTimers = new Map<string, ReturnType<typeof setTimeout>>(); // id → debounce handle
 
 // The calendar day the page is currently projecting. Held rather than recomputed
-// per call so that every walk() in one render agrees on what "today" is, and so a
+// per call so that every projection in one render agrees on what "today" is, and so a
 // tab left open overnight can notice the date turn over (see watchForMidnight).
 let today = todayLocal();
 
@@ -168,7 +173,7 @@ function applyLocal(m: Mutation) {
 
 // ── Render ──
 function render() {
-  currentLines = walk(nodesById, today);
+  currentLines = viewLines();
   list.textContent = "";
   const frag = document.createDocumentFragment();
   for (const line of currentLines) {
@@ -209,14 +214,51 @@ function render() {
 // is relative to today, and its count is a fact about the tree.
 let buckets: Bucket[] = bucketsFor();
 
+// The view the page is currently showing. Per-tab, never persisted or synced — a
+// bucket is a lens, not a fact about the document, and two tabs may look through
+// different ones. Tracked by key, not id, so it survives the sidebar being rebuilt
+// (a midnight turnover, a re-render): "Tomorrow" is a different date next week but the
+// same key. The landing view is Unbucketed — the capture inbox.
+let activeKey: BucketKey = "unbucketed";
+
+// The active bucket resolved against the current sidebar. Falls back to Unbucketed if
+// the key ever names a bucket that no longer exists (it always does today).
+function activeBucket(): Bucket {
+  return buckets.find((b) => b.key === activeKey) ?? buckets[0];
+}
+
+// The lines of the active view: this bucket's trees, in document order, minus the
+// fully-checked ones (finishing every box in a tree retires it from every view).
+function viewLines(): Line[] {
+  const b = activeBucket();
+  return project(
+    nodesById,
+    (n, kids) => !fullyChecked(nodesById, n, kids) && inBucket(n, b, today),
+  );
+}
+
+// Switch the active view. A no-op if you click the bucket you are already in.
+function setActiveBucket(key: BucketKey) {
+  if (key === activeKey) return;
+  activeKey = key;
+  seedActiveIfEmpty(); // an empty view is a dead end — nothing to type into
+  render();
+}
+
 function renderBuckets() {
+  const active = activeBucket();
   bucketBox.textContent = "";
   const frag = document.createDocumentFragment();
   for (const b of buckets) {
     const el = document.createElement("div");
-    el.className = "pill bucket";
+    // The active bucket carries .bucket-active so the sidebar shows which view you
+    // are in — the lens is otherwise invisible.
+    el.className = b.key === active.key ? "pill bucket bucket-active" : "pill bucket";
     el.id = b.id;
-    el.dataset.hideUntil = b.hideUntil;
+    el.dataset.key = b.key;
+    // The drop target's hideUntil: a date, a sentinel, or empty for Unbucketed (which
+    // hands a dropped todo a null hideUntil, tipping it back out of every dated view).
+    el.dataset.hideUntil = b.hideUntil ?? "";
 
     const label = document.createElement("span");
     label.className = "pill-text-primary";
@@ -238,38 +280,38 @@ function renderBuckets() {
 
 // How many todo-trees are waiting in a bucket. Top-level nodes only — a bucketed
 // todo takes its subtree with it, and counting the descendants too would report a
-// three-line tree as three separate things to do.
+// three-line tree as three separate things to do. A blank placeholder line (an empty
+// view seeds one so it can be typed into) is not work, so it is not counted.
 function countIn(b: Bucket): number {
   let n = 0;
   for (const node of childrenOf(nodesById, null)) {
-    if (node.hideUntil === b.hideUntil && !fullyChecked(nodesById, node)) n++;
+    if (!inBucket(node, b, today)) continue;
+    if (fullyChecked(nodesById, node)) continue;
+    if (isBlankLeaf(node)) continue;
+    n++;
   }
   return n;
 }
 
-// Drop a todo into a bucket. The node keeps everything else — its text, its
-// children, its place in the tree — and simply stops being projected until its day
-// (see walk()). Nothing is moved and nothing is archived, which is why coming back
-// out is just as cheap.
-function bucketTodo(id: string, hideUntil: string) {
+// A lone empty line: no text, unchecked, no children. The blank a view seeds so it is
+// not a dead end is one of these, and it should not inflate a bucket's count.
+function isBlankLeaf(node: Todo): boolean {
+  return (
+    !node.checked &&
+    !(node.keyboardText || "").trim() &&
+    childrenOf(nodesById, node.id).length === 0
+  );
+}
+
+// Drop a todo into a bucket. The node keeps everything else — its text, its children,
+// its place in the tree — and simply changes which view it belongs to (see inBucket()).
+// Dropping onto Unbucketed passes a null hideUntil, which is how a todo comes back out
+// of a dated bucket now that clicking navigates rather than empties.
+function bucketTodo(id: string, hideUntil: string | null) {
   const node = nodesById.get(id);
   if (!node) return;
   commitLocal([{ op: "edit", id: id, hideUntil: hideUntil }]);
-  seedIfEmpty(); // bucketing the last visible tree would otherwise leave a dead page
-  render();
-}
-
-// Click a bucket to tip it back onto the board. The one way out, and the reason a
-// mis-drop (especially onto Someday, which never arrives on its own) is a shrug
-// rather than a loss. Empties the whole bucket — there is no per-todo peek yet.
-function emptyBucket(b: Bucket) {
-  const stranded = childrenOf(nodesById, null).filter(
-    (n) => n.hideUntil === b.hideUntil,
-  );
-  if (!stranded.length) return;
-  commitLocal(
-    stranded.map((n): Mutation => ({ op: "edit", id: n.id, hideUntil: null })),
-  );
+  seedActiveIfEmpty(); // moving the last visible tree out would otherwise leave a dead page
   render();
 }
 
@@ -290,14 +332,17 @@ bucketBox.addEventListener("drop", (e) => {
   e.preventDefault();
   el.classList.remove("bucket-over");
   const id = e.dataTransfer!.getData("text/plain");
-  const hideUntil = el.dataset.hideUntil;
-  if (id && hideUntil) bucketTodo(id, hideUntil);
+  // Empty dataset.hideUntil is Unbucketed's null — a real destination, not a missing
+  // one — so the drop is gated on the dragged id alone.
+  if (id) bucketTodo(id, el.dataset.hideUntil || null);
 });
+// Click a bucket to look through it: it becomes the active view and #todo-container
+// shows only its todos. This is the whole point of a bucket now — a lens you switch to,
+// not a holding pen you tip back out (dropping onto Unbucketed does the tipping-out).
 bucketBox.addEventListener("click", (e) => {
   const el = (e.target as HTMLElement).closest<HTMLElement>(".bucket");
-  if (!el) return;
-  const b = buckets.find((x) => x.id === el.id);
-  if (b) emptyBucket(b);
+  if (!el || !el.dataset.key) return;
+  setActiveBucket(el.dataset.key as BucketKey);
 });
 
 // A tab left open across midnight is projecting yesterday: the buckets still say
@@ -417,7 +462,7 @@ function connectSocket() {
 
 function refetch() {
   loadTree().then(() => {
-    seedIfEmpty();
+    seedActiveIfEmpty();
     repositionCursorAfterRender();
   });
 }
@@ -426,7 +471,7 @@ function refetch() {
 // re-render — holding the cursor, because render() rebuilds every row and would
 // otherwise annihilate focus and caret mid-word.
 //
-// Note what is NOT here: seedIfEmpty(). Seeding is a derived action — "nothing is
+// Note what is NOT here: seedActiveIfEmpty(). Seeding is a derived action — "nothing is
 // visible, so drop in a blank line" — and if every device drew that conclusion
 // independently, every device would seed.
 function applyRemote(batch: Mutation[]) {
@@ -492,12 +537,12 @@ function onToggle(btn: HTMLButtonElement) {
   const val = !n.checked;
   commitLocal([{ op: "edit", id: id, checked: val }]);
   // Checking the last open box completes the whole top-level tree, which then drops
-  // out of the view (see walk()) — re-render so it disappears. Any other toggle
+  // out of every view (see project()) — re-render so it disappears. Any other toggle
   // updates the one .todo-checked in place, leaving the caret untouched. Either way
   // the bucket counts may have moved, so they are redrawn.
   const root = rootOf(nodesById, id);
   if (val && root && fullyChecked(nodesById, root)) {
-    seedIfEmpty(); // if that was the last visible tree, drop in a blank line
+    seedActiveIfEmpty(); // if that was the last visible tree, drop in a blank line
     render();
     return;
   }
@@ -506,6 +551,14 @@ function onToggle(btn: HTMLButtonElement) {
   const row = btn.closest<HTMLElement>(".todo-row");
   if (row) row.dataset.checked = val ? "1" : "0";
   renderBuckets();
+}
+
+// The hideUntil a newly-created node should carry. A new top-level node joins the view
+// you are looking at, so it takes the active bucket's hideUntil — otherwise a line typed
+// in the Friday view would vanish the instant it was created. A child's hideUntil is
+// never read (bucket membership is a root property), so it stays null.
+function hideUntilFor(parentID: string | null): string | null {
+  return parentID == null ? activeBucket().hideUntil : null;
 }
 
 function onEnter(line: Line, input: HTMLInputElement) {
@@ -525,7 +578,7 @@ function onEnter(line: Line, input: HTMLInputElement) {
         position: between(lo, node.position),
         checked: false,
         keyboardText: "",
-        hideUntil: null,
+        hideUntil: hideUntilFor(node.parentID),
       },
     ]);
     pending = { id: node.id, col: 0 }; // caret stays on current line
@@ -541,7 +594,7 @@ function onEnter(line: Line, input: HTMLInputElement) {
           position: between(null, kids[0].position),
           checked: false,
           keyboardText: "",
-          hideUntil: null,
+          hideUntil: hideUntilFor(node.id),
         },
       ]);
     } else {
@@ -556,7 +609,7 @@ function onEnter(line: Line, input: HTMLInputElement) {
           position: between(node.position, hi),
           checked: false,
           keyboardText: "",
-          hideUntil: null,
+          hideUntil: hideUntilFor(node.parentID),
         },
       ]);
     }
@@ -624,14 +677,18 @@ function onOutdent(line: Line, col: number) {
   const gsibs = siblingsOf(nodesById, parent);
   const pidx = gsibs.findIndex((s) => s.id === parent.id);
   const hi = pidx + 1 < gsibs.length ? gsibs[pidx + 1].position : null;
-  commitLocal([
-    {
-      op: "edit",
-      id: node.id,
-      parentID: grandID,
-      position: between(parent.position, hi),
-    },
-  ]);
+  // Outdenting to the root level makes this node a tree of its own. It must join the
+  // view you are looking at — otherwise a child outdented in the Friday view would land
+  // in Unbucketed (a null hideUntil) and vanish from under the caret. Deeper outdents
+  // (grandID is still a node) leave hideUntil alone; a non-root's is never read.
+  const patch: EditMutation = {
+    op: "edit",
+    id: node.id,
+    parentID: grandID,
+    position: between(parent.position, hi),
+  };
+  if (grandID == null) patch.hideUntil = activeBucket().hideUntil;
+  commitLocal([patch]);
   pending = { id: node.id, col: col };
   render();
 }
@@ -701,17 +758,18 @@ list.addEventListener("dragstart", (e) => {
 scroll.addEventListener("mousedown", blankFocus);
 
 // ── Dev helper: the action-box's two action-pills copy the on-page todos as JSON.
-// Both cover exactly the nodes visible on the page — completed trees and bucketed
-// trees, which dropped out in walk(), are excluded.
+// Both cover exactly the nodes visible on the page — that is, the active bucket's view.
+// Completed trees, and the trees belonging to other buckets, are excluded.
 function rawNodes() {
-  return walk(nodesById, today).map((l) => l.node);
+  return viewLines().map((l) => l.node);
 }
 function nestedTree() {
+  const b = activeBucket();
   return (function build(parentID: string | null, depth: number): unknown[] {
     return childrenOf(nodesById, parentID)
       .filter(
         (n) =>
-          !(depth === 0 && (fullyChecked(nodesById, n) || isBucketed(n, today))),
+          !(depth === 0 && (fullyChecked(nodesById, n) || !inBucket(n, b, today))),
       )
       .map((n) => ({
         id: n.id,
@@ -782,36 +840,40 @@ function onActionPill(id: string, build: () => unknown) {
 onActionPill("copy-as-json-raw-array", rawNodes);
 onActionPill("copy-as-json-nested-object-tree", nestedTree);
 
-// ── Auto-seed: keep the scratchpad from becoming a dead end ──
-// With nothing visible (fresh scratchpad, every tree checked off, or everything
-// bucketed for later) no row renders, and since every keystroke handler is delegated
-// off an input[data-id] target, there would be nothing to type into and no way to add
-// a line. So drop in one blank todo. Caller re-renders.
-function seedIfEmpty() {
-  if (walk(nodesById, today).length > 0) return;
+// ── Auto-seed: keep the active view from becoming a dead end ──
+// With nothing visible in the current view (a fresh scratchpad, every tree in it checked
+// off, its last tree bucketed elsewhere, or an empty bucket you just navigated to) no
+// row renders, and since every keystroke handler is delegated off an input[data-id]
+// target, there would be nothing to type into. So drop one blank todo into the active
+// view. Caller re-renders.
+function seedActiveIfEmpty() {
+  if (viewLines().length > 0) return;
+  const b = activeBucket();
   const roots = childrenOf(nodesById, null);
   const lastPos = roots.length ? roots[roots.length - 1].position : null;
   commitLocal([
     {
       op: "create",
       // Deliberately NOT a random id, unlike every other create. Seeding is a
-      // *derived* action — "nothing is visible, so drop in a blank line" — and two
+      // *derived* action — "this view is empty, so drop in a blank line" — and two
       // tabs can reach that conclusion at the same moment. Random ids would give you
-      // two blank lines. An id derived from the revision that emptied the tree gives
-      // both tabs the same id, so the two creates collapse into one.
-      id: "blank-seed-" + treeRevision,
+      // two blank lines. An id derived from the revision AND the view keeps two tabs on
+      // the same empty view collapsing to one create, while two tabs on different empty
+      // views each get their own blank.
+      id: "blank-seed-" + treeRevision + "-" + b.key,
       parentID: null,
       position: between(lastPos, null),
       checked: false,
       keyboardText: "",
-      hideUntil: null,
+      // The blank belongs to the view it was seeded into, so it is there to type in.
+      hideUntil: b.hideUntil,
     },
   ]);
 }
 
 // ── Boot ──
 loadTree().then(() => {
-  seedIfEmpty();
+  seedActiveIfEmpty();
   render();
   const inputs = list.querySelectorAll<HTMLInputElement>("input[data-id]");
   const last = inputs[inputs.length - 1];

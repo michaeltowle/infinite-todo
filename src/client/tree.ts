@@ -85,36 +85,28 @@ export function between(lo: number | null, hi: number | null): number {
 }
 
 // ── Projection: tree → ordered lines with depth ──
-// Two things never make it into the projection, and so never reach the page:
+// A projection is the tree flattened into document order with each node's depth. What
+// reaches the page is decided one node at a time, and only at depth 0: `keepRoot` is
+// asked of every top-level node, and a tree travels as a unit, so a child is never
+// independently retired, bucketed, or filtered away from its parent.
 //
-//   1. A fully-checked top-level tree. Finishing every box in a tree retires it.
-//   2. A todo bucketed for a later day (see buckets.ts). `today` is the caller's
-//      local calendar date as YYYY-MM-DD; a node whose hideUntil is strictly
-//      after it is waiting, not hidden forever, and returns on its own morning.
-//
-// Both tests are applied at depth 0 only: a tree travels as a unit, so a child
-// is never independently retired or bucketed away from its parent.
-export function walk(nodes: Map<string, Todo>, today: string): Line[] {
+// The predicate is the caller's — the renderer builds one from the active bucket (show
+// this bucket's trees, minus the fully-checked ones). Keeping the rule out here is what
+// lets tree.ts stay ignorant of buckets and views.
+export function project(
+  nodes: Map<string, Todo>,
+  keepRoot: (node: Todo, kids: Map<string | null, Todo[]>) => boolean,
+): Line[] {
   const kids = childMap(nodes);
   const lines: Line[] = [];
   (function dfs(parentID: string | null, depth: number) {
     for (const n of kids.get(parentID) || []) {
-      if (depth === 0 && fullyChecked(nodes, n, kids)) continue;
-      if (depth === 0 && isBucketed(n, today)) continue;
+      if (depth === 0 && !keepRoot(n, kids)) continue;
       lines.push({ node: n, depth });
       dfs(n.id, depth + 1);
     }
   })(null, 0);
   return lines;
-}
-
-// A node is bucketed when it carries a hideUntil the calendar has not reached.
-// "someday" is the bucket with no date: it never arrives on its own, so it is
-// always bucketed, and only ever comes back by hand.
-export function isBucketed(node: Todo, today: string): boolean {
-  if (!node.hideUntil) return false;
-  if (node.hideUntil === SOMEDAY) return true;
-  return node.hideUntil > today; // YYYY-MM-DD compares correctly as a string
 }
 
 // The hideUntil value of the dateless bucket. A sentinel rather than a date, so

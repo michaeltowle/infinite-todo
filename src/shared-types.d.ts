@@ -11,10 +11,10 @@ interface Todo {
   position: number;
   checked: boolean;
   keyboardText: string;
-  // The day this todo comes back, YYYY-MM-DD, or "someday" for the dateless
-  // bucket, or null for a todo that was never bucketed. A node whose hideUntil
-  // the calendar has not reached is not projected onto the page (see walk()) —
-  // it is waiting, not gone.
+  // Which bucket this todo's tree belongs to (see buckets.ts): a YYYY-MM-DD date,
+  // "someday" or "bigticket" for the two dateless buckets, or null for the Unbucketed
+  // capture inbox. Only the active bucket's todos are projected onto the page at a
+  // time (see project()/inBucket) — the rest are waiting, not gone.
   hideUntil: string | null;
 }
 
@@ -60,7 +60,7 @@ interface DeploymentStamp {
   commit: StampTime;
 }
 
-// A projected line: a node plus the depth walk() found it at. `depth` is
+// A projected line: a node plus the depth project() found it at. `depth` is
 // depthLevel — computed here, never stored.
 interface Line {
   node: Todo;
