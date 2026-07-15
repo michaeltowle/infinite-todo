@@ -79,8 +79,6 @@ input::placeholder{color:#bcad90}
 .pill-container{box-sizing:border-box;padding:12px;background:#faf5ea;border:1px solid rgba(120,90,40,.11);border-radius:8px;display:flex;flex-direction:column;gap:6px;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;line-height:1.5;color:#333}
 @media (max-width:1279px){.pill-container{flex-direction:row;flex-wrap:wrap;align-items:center}}
 .pill{display:flex;flex-wrap:wrap;gap:5px;align-items:baseline;background:transparent;border-radius:3px;padding:4px 7px}
-.action-pill{border:none;margin:0;font:inherit;text-align:left;cursor:pointer;color:inherit;transition:background .12s}
-.action-pill:hover{background:#f1e7d3}
 .pill-text-primary{color:#333;white-space:nowrap}
 .pill-text-secondary{color:#b07a30;white-space:nowrap}
 /* A bucket is both a view and a drop-target. Click one and #todo-container shows only
@@ -104,14 +102,8 @@ input::placeholder{color:#bcad90}
 <div class="sidebar double-sidebar" id="right-sidebar"></div>
 <div class="sidebar mono-sidebar" id="mono-sidebar">
 <div class="sidebar-box pill-container bucket-box" id="bucket-box"></div>
-<div class="sidebar-box pill-container action-box">
-<button class="pill action-pill" type="button" id="copy-as-json-raw-array"><span class="pill-text-primary">copy as json</span> <span class="pill-text-secondary">raw array</span></button>
-<button class="pill action-pill" type="button" id="copy-as-json-nested-object-tree"><span class="pill-text-primary">copy as json</span> <span class="pill-text-secondary">nested object tree</span></button>
-</div>
 <div class="sidebar-box pill-container info-box">
 <div class="pill info-pill" id="deployed-timestamp"><span class="pill-text-primary">deployed</span> <span class="pill-text-secondary"></span></div>
-<div class="pill info-pill" id="page-edit-timestamp"><span class="pill-text-primary">page edit</span> <span class="pill-text-secondary"></span></div>
-<div class="pill info-pill" id="commit-timestamp"><span class="pill-text-primary">commit</span> <span class="pill-text-secondary"></span></div>
 <div class="pill info-pill" id="on-branch-branchname"><span class="pill-text-primary">on branch</span> <span class="pill-text-secondary"></span></div>
 </div>
 </div>

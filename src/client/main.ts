@@ -757,34 +757,8 @@ list.addEventListener("dragstart", (e) => {
 });
 scroll.addEventListener("mousedown", blankFocus);
 
-// ── Dev helper: the action-box's two action-pills copy the on-page todos as JSON.
-// Both cover exactly the nodes visible on the page — that is, the active bucket's view.
-// Completed trees, and the trees belonging to other buckets, are excluded.
-function rawNodes() {
-  return viewLines().map((l) => l.node);
-}
-function nestedTree() {
-  const b = activeBucket();
-  return (function build(parentID: string | null, depth: number): unknown[] {
-    return childrenOf(nodesById, parentID)
-      .filter(
-        (n) =>
-          !(depth === 0 && (fullyChecked(nodesById, n) || !inBucket(n, b, today))),
-      )
-      .map((n) => ({
-        id: n.id,
-        checked: n.checked,
-        keyboardText: n.keyboardText,
-        position: n.position,
-        children: build(n.id, depth + 1),
-      }));
-  })(null, 0);
-}
-
-// ── Last deployment timestamp: the info-box ships all four info-pills in the page;
-// this fills each one's secondary text by id and drops the pills that don't apply.
-// Live keeps #deployed-timestamp, localhost keeps #page-edit-timestamp and
-// #commit-timestamp; #on-branch-branchname survives both.
+// ── Last deployment timestamp: fills the info-box's two pills, #deployed-timestamp
+// and #on-branch-branchname, from the build-time stamp baked into the page.
 (function renderLastDeploymentTimestamp() {
   const s = lastDeploymentTimestamp;
   // Format "2026-07-08" + "09:52:36" → "9:52am on Jul 8"
@@ -808,37 +782,11 @@ function nestedTree() {
     const slot = pill.querySelector(".pill-text-secondary");
     if (slot) slot.textContent = value;
   }
-  function dropPill(id: string) {
-    const pill = document.getElementById(id);
-    if (pill) pill.remove();
-  }
   fillPill("on-branch-branchname", "#" + s.branch);
-  if (window.location.hostname === "localhost") {
-    fillPill("page-edit-timestamp", formatStampTime(s.pageEdit.date, s.pageEdit.time));
-    fillPill("commit-timestamp", formatStampTime(s.commit.date, s.commit.time));
-    dropPill("deployed-timestamp");
-  } else {
-    fillPill("deployed-timestamp", formatStampTime(s.deploy.date, s.deploy.time));
-    dropPill("page-edit-timestamp");
-    dropPill("commit-timestamp");
-  }
+  fillPill("deployed-timestamp", formatStampTime(s.deploy.date, s.deploy.time));
 })();
 
-// Tab title mirrors the last-deployment-timestamp's hostname check: live is
-// "Scratchpad", localhost is tagged so the two tabs are distinguishable.
-document.title =
-  window.location.hostname === "localhost" ? "Scratchpad — localhost" : "Scratchpad";
-
-function copyAsJSON(data: unknown) {
-  const text = JSON.stringify(data, null, 2);
-  if (navigator.clipboard) navigator.clipboard.writeText(text);
-}
-function onActionPill(id: string, build: () => unknown) {
-  const pill = document.getElementById(id);
-  if (pill) pill.addEventListener("click", () => copyAsJSON(build()));
-}
-onActionPill("copy-as-json-raw-array", rawNodes);
-onActionPill("copy-as-json-nested-object-tree", nestedTree);
+document.title = "Scratchpad";
 
 // ── Auto-seed: keep the active view from becoming a dead end ──
 // With nothing visible in the current view (a fresh scratchpad, every tree in it checked

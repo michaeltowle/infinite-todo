@@ -45,7 +45,7 @@ interface DeleteMutation {
 }
 
 // One wall-clock reading, US Eastern, as written by the deployment-timestamp
-// generator. Empty strings when the value doesn't apply to that build.
+// generator.
 interface StampTime {
   date: string;
   time: string;
@@ -53,11 +53,8 @@ interface StampTime {
 
 // The generated last-deployment-timestamp payload, inlined into the page.
 interface DeploymentStamp {
-  mode: "deploy" | "dev";
   branch: string;
   deploy: StampTime;
-  pageEdit: StampTime;
-  commit: StampTime;
 }
 
 // A projected line: a node plus the depth project() found it at. `depth` is
