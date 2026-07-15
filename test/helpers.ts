@@ -70,7 +70,7 @@ export async function nodeById(request: APIRequestContext, id: string) {
 
 export async function cursor(page: Page) {
   return page.evaluate(() => {
-    const el = document.activeElement as HTMLInputElement | null;
+    const el = document.activeElement as HTMLTextAreaElement | null;
     return {
       tag: el ? el.tagName : null,
       id: el && el.dataset ? (el.dataset.id ?? null) : null,
@@ -82,7 +82,7 @@ export async function cursor(page: Page) {
 
 export const caretOf = (page: Page, id: string) =>
   page.evaluate(
-    (id) => (document.querySelector(`input[data-id="${id}"]`) as HTMLInputElement).selectionStart,
+    (id) => (document.querySelector(`textarea[data-id="${id}"]`) as HTMLTextAreaElement).selectionStart,
     id,
   );
 
@@ -92,7 +92,7 @@ export const caretOf = (page: Page, id: string) =>
 export async function putCaret(page: Page, id: string, col: number) {
   await page.evaluate(
     ({ id, col }) => {
-      const el = document.querySelector(`input[data-id="${id}"]`) as HTMLInputElement;
+      const el = document.querySelector(`textarea[data-id="${id}"]`) as HTMLTextAreaElement;
       el.focus();
       el.setSelectionRange(col, col);
     },
@@ -106,7 +106,7 @@ export async function putCaret(page: Page, id: string, col: number) {
 // been destroyed.
 export async function stamp(page: Page, id: string) {
   await page.evaluate((id) => {
-    (document.querySelector(`input[data-id="${id}"]`) as HTMLInputElement & {
+    (document.querySelector(`textarea[data-id="${id}"]`) as HTMLTextAreaElement & {
       _stamp?: number;
     })._stamp = 1;
   }, id);
@@ -114,8 +114,8 @@ export async function stamp(page: Page, id: string) {
 
 export async function stampSurvived(page: Page, id: string) {
   return page.evaluate((id) => {
-    const el = document.querySelector(`input[data-id="${id}"]`) as
-      | (HTMLInputElement & { _stamp?: number })
+    const el = document.querySelector(`textarea[data-id="${id}"]`) as
+      | (HTMLTextAreaElement & { _stamp?: number })
       | null;
     return !!(el && el._stamp);
   }, id);

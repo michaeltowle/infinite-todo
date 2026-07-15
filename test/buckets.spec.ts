@@ -61,8 +61,8 @@ test('the page lands on the Unbucketed view', async ({ page, request }) => {
   ]);
   await open(page, 1);
 
-  await expect(page.locator('input[data-id="inbox"]')).toBeVisible();
-  await expect(page.locator('input[data-id="later"]')).toHaveCount(0);
+  await expect(page.locator('textarea[data-id="inbox"]')).toBeVisible();
+  await expect(page.locator('textarea[data-id="later"]')).toHaveCount(0);
   await expect(page.locator('#bucket-unbucketed')).toHaveClass(/bucket-active/);
 });
 
@@ -80,15 +80,15 @@ test('clicking a bucket switches the view to show only its todos', async ({
     node('c', null, 3, false, 'gamma'),
   ]);
   await open(page, 1); // landing = Unbucketed: only the un-bucketed 'c' shows
-  await expect(page.locator('input[data-id="c"]')).toBeVisible();
-  await expect(page.locator('input[data-id="a"]')).toHaveCount(0);
+  await expect(page.locator('textarea[data-id="c"]')).toBeVisible();
+  await expect(page.locator('textarea[data-id="a"]')).toHaveCount(0);
 
   await page.locator('#bucket-someday').click();
 
   await expect(page.locator('.todo-row')).toHaveCount(2);
-  await expect(page.locator('input[data-id="a"]')).toBeVisible();
-  await expect(page.locator('input[data-id="b"]')).toBeVisible();
-  await expect(page.locator('input[data-id="c"]')).toHaveCount(0);
+  await expect(page.locator('textarea[data-id="a"]')).toBeVisible();
+  await expect(page.locator('textarea[data-id="b"]')).toBeVisible();
+  await expect(page.locator('textarea[data-id="c"]')).toHaveCount(0);
   await expect(page.locator('#bucket-someday')).toHaveClass(/bucket-active/);
   await expect(page.locator('#bucket-unbucketed')).not.toHaveClass(/bucket-active/);
   await expect.poll(async () => (await nodeById(request, 'a'))?.hideUntil).toBe('someday');
@@ -110,8 +110,8 @@ test('dropping a todo on a bucket moves it and persists hideUntil', async ({
   await dragToBucket(page, 'a', '[data-key="day-1"]'); // Tomorrow
 
   await expect(page.locator('.todo-row')).toHaveCount(1);
-  await expect(page.locator('input[data-id="b"]')).toBeVisible();
-  await expect(page.locator('input[data-id="a"]')).toHaveCount(0);
+  await expect(page.locator('textarea[data-id="b"]')).toBeVisible();
+  await expect(page.locator('textarea[data-id="a"]')).toHaveCount(0);
 
   await expect
     .poll(async () => (await nodeById(request, 'a'))?.hideUntil)
@@ -133,7 +133,7 @@ test('dropping a todo on Unbucketed tips it back out to a null hideUntil', async
   ]);
   await open(page, 1); // Unbucketed shows only 'keep'
   await page.locator('#bucket-someday').click();
-  await expect(page.locator('input[data-id="a"]')).toBeVisible();
+  await expect(page.locator('textarea[data-id="a"]')).toBeVisible();
 
   await dragToBucket(page, 'a', '#bucket-unbucketed');
 
@@ -157,7 +157,7 @@ test('bucketing a parent takes its whole subtree off the board', async ({
   await dragToBucket(page, 'parent', '#bucket-someday');
 
   await expect(page.locator('.todo-row')).toHaveCount(1);
-  await expect(page.locator('input[data-id="other"]')).toBeVisible();
+  await expect(page.locator('textarea[data-id="other"]')).toBeVisible();
 
   // Only the root carries a hideUntil. The children come off the board because their
   // root did, not because they were each bucketed.
@@ -205,7 +205,7 @@ test('a todo created while viewing a bucket takes that bucket', async ({
   // must not show up in the bucket's count.
   await expect(page.locator('.todo-row')).toHaveCount(1);
   await expect(page.locator('#bucket-big-ticket .pill-text-secondary')).toHaveText('');
-  const input = page.locator('#todo-container input').first();
+  const input = page.locator('#todo-container textarea').first();
   await input.fill('a big one');
   await input.press('Enter'); // flushes the text edit + creates a sibling, both in Big Ticket
 
@@ -218,7 +218,7 @@ test('a todo created while viewing a bucket takes that bucket', async ({
   // It belongs to Big Ticket, not Unbucketed: the anchor is still the only thing there.
   await page.locator('#bucket-unbucketed').click();
   await expect(page.locator('#todo-container')).not.toContainText('a big one');
-  await expect(page.locator('input[data-id="anchor"]')).toBeVisible();
+  await expect(page.locator('textarea[data-id="anchor"]')).toBeVisible();
 });
 
 // Big Ticket is a normal bucket for now — dropping a todo on it moves the tree there and
@@ -233,7 +233,7 @@ test('dropping a todo on Big Ticket moves it there', async ({ page, request }) =
 
   await dragToBucket(page, 'a', '#bucket-big-ticket');
 
-  await expect(page.locator('input[data-id="a"]')).toHaveCount(0);
+  await expect(page.locator('textarea[data-id="a"]')).toHaveCount(0);
   await expect.poll(async () => (await nodeById(request, 'a'))?.hideUntil).toBe('big-ticket');
   await expect(page.locator('#bucket-big-ticket .pill-text-secondary')).toHaveText('1');
 });
@@ -248,16 +248,16 @@ test('a todo whose day has arrived shows up in Today', async ({ page, request })
   ]);
   // Landing view is Unbucketed; both todos are dated, so it is empty and seeds a blank.
   await open(page, 1);
-  await expect(page.locator('input[data-id="past"]')).toHaveCount(0);
+  await expect(page.locator('textarea[data-id="past"]')).toHaveCount(0);
 
   await page.locator('[data-key="today"]').click();
 
-  await expect(page.locator('input[data-id="past"]')).toBeVisible();
-  await expect(page.locator('input[data-id="future"]')).toHaveCount(0);
+  await expect(page.locator('textarea[data-id="past"]')).toBeVisible();
+  await expect(page.locator('textarea[data-id="future"]')).toHaveCount(0);
 });
 
 // Moving the last visible tree out of the active view empties it, and an empty view is a
-// dead end — every keystroke handler is delegated off an input[data-id], so with no row
+// dead end — every keystroke handler is delegated off an textarea[data-id], so with no row
 // there is nothing to type into. seedActiveIfEmpty() has to cover being emptied by a
 // bucket drop, not just by a checkbox. 2026-07-13
 test('bucketing the last visible tree seeds a blank line', async ({ page, request }) => {
@@ -267,7 +267,7 @@ test('bucketing the last visible tree seeds a blank line', async ({ page, reques
   await dragToBucket(page, 'only', '#bucket-someday');
 
   await expect(page.locator('.todo-row')).toHaveCount(1);
-  await expect(page.locator('#todo-container input')).toHaveValue('');
+  await expect(page.locator('#todo-container textarea')).toHaveValue('');
   // And the blank line is real — it reached the store, so a reload does not lose it.
   await expect
     .poll(async () => (await readTree(request)).filter((n) => !n.hideUntil).length)

@@ -44,7 +44,7 @@ test('a box checked on one device shows up on the other', async ({ page, context
 
   await other.locator('button[data-id="k"]').click();
 
-  await expect(page.locator('.todo-row[data-checked="1"] input[data-id="k"]')).toHaveCount(1);
+  await expect(page.locator('.todo-row[data-checked="1"] textarea[data-id="k"]')).toHaveCount(1);
 });
 
 // 2026-07-12
@@ -57,10 +57,10 @@ test('text typed on one device shows up on the other', async ({ page, context, r
   const other = await context.newPage();
   await open(other, 1);
 
-  await other.locator('input[data-id="a"]').click();
+  await other.locator('textarea[data-id="a"]').click();
   await other.keyboard.type('buy milk');
 
-  await expect(page.locator('input[data-id="a"]')).toHaveValue('buy milk');
+  await expect(page.locator('textarea[data-id="a"]')).toHaveValue('buy milk');
 });
 
 // 2026-07-12
@@ -75,7 +75,7 @@ test('a new line created on one device appears on the other', async ({
   const other = await context.newPage();
   await open(other, 1);
 
-  await other.locator('input[data-id="a"]').click();
+  await other.locator('textarea[data-id="a"]').click();
   await other.keyboard.press('End'); // caret at 0 would insert ABOVE
   await other.keyboard.press('Enter');
 
@@ -94,7 +94,7 @@ test('an indent on one device appears on the other', async ({ page, context, req
   const other = await context.newPage();
   await open(other, 2);
 
-  await other.locator('input[data-id="b"]').click();
+  await other.locator('textarea[data-id="b"]').click();
   await other.keyboard.press('Tab');
 
   await expect(page.locator('.todo-row').nth(1)).toHaveCSS('margin-left', '28px'); // one INDENT
@@ -115,7 +115,7 @@ test('a line deleted on one device disappears on the other', async ({
   const other = await context.newPage();
   await open(other, 2);
 
-  await other.locator('input[data-id="e"]').click();
+  await other.locator('textarea[data-id="e"]').click();
   await other.keyboard.press('Backspace');
 
   await expect(page.locator('.todo-row')).toHaveCount(1);
@@ -138,7 +138,7 @@ test('a remote change does not move the local caret', async ({ page, request }) 
 
   await request.post(ELSEWHERE, { data: [{ op: 'edit', id: 'k', checked: true }] });
 
-  await expect(page.locator('.todo-row[data-checked="1"] input[data-id="k"]')).toHaveCount(1);
+  await expect(page.locator('.todo-row[data-checked="1"] textarea[data-id="k"]')).toHaveCount(1);
   expect(await cursor(page)).toMatchObject({ id: 'p', start: 3, end: 3 });
 });
 
@@ -151,12 +151,12 @@ test('a remote edit does not overwrite the line you are typing in', async ({ pag
   await layTree(request, [node('a', null, 1, false, '')]);
   await open(page, 1);
 
-  await page.locator('input[data-id="a"]').click();
+  await page.locator('textarea[data-id="a"]').click();
   await page.keyboard.type('mine'); // now parked on the debounce timer, unsent
 
   await request.post(ELSEWHERE, { data: [{ op: 'edit', id: 'a', keyboardText: 'theirs' }] });
 
-  await expect(page.locator('input[data-id="a"]')).toHaveValue('mine');
+  await expect(page.locator('textarea[data-id="a"]')).toHaveValue('mine');
 });
 
 // 2026-07-12
@@ -168,7 +168,7 @@ test('your own write is not echoed back to you', async ({ page, request }) => {
   await layTree(request, [node('a', null, 1, false, '')]);
   await open(page, 1);
 
-  await page.locator('input[data-id="a"]').click();
+  await page.locator('textarea[data-id="a"]').click();
   await stamp(page, 'a');
 
   await page.keyboard.type('buy milk');
@@ -199,8 +199,8 @@ test('completing the last tree seeds exactly one blank line, not one per device'
 
   await expect(page.locator('.todo-row')).toHaveCount(1);
   await expect(other.locator('.todo-row')).toHaveCount(1);
-  await expect(page.locator('.todo-row input')).toHaveValue('');
-  await expect(other.locator('.todo-row input')).toHaveValue('');
+  await expect(page.locator('.todo-row textarea')).toHaveValue('');
+  await expect(other.locator('.todo-row textarea')).toHaveValue('');
 
   // 'solo' (now checked and hidden) plus exactly one seeded blank line.
   await expect.poll(async () => (await readTree(request)).length).toBe(2);

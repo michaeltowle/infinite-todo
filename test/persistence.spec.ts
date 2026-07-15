@@ -27,7 +27,7 @@ test('typing persists', async ({ page, request }) => {
   await layTree(request, [node('a', null, 1, false, '')]);
   await open(page, 1);
 
-  await page.locator('input[data-id="a"]').click();
+  await page.locator('textarea[data-id="a"]').click();
   await page.keyboard.type('buy milk');
   await page.waitForTimeout(PAST_DEBOUNCE);
 
@@ -60,7 +60,7 @@ test('backspace on an empty line deletes the node from the store', async ({ page
   ]);
   await open(page, 2);
 
-  await page.locator('input[data-id="e"]').click();
+  await page.locator('textarea[data-id="e"]').click();
   await page.keyboard.press('Backspace');
 
   await expect.poll(async () => (await readTree(request)).map((n) => n.id)).toEqual(['a']);
@@ -73,7 +73,7 @@ test('Enter persists the new line', async ({ page, request }) => {
   await layTree(request, [node('a', null, 1, false, 'alpha')]);
   await open(page, 1);
 
-  await page.locator('input[data-id="a"]').click();
+  await page.locator('textarea[data-id="a"]').click();
   await page.keyboard.press('End'); // caret at 0 would insert ABOVE instead
   await page.keyboard.press('Enter');
 
@@ -95,7 +95,7 @@ test('Tab persists the new treePlacement', async ({ page, request }) => {
   ]);
   await open(page, 2);
 
-  await page.locator('input[data-id="b"]').click();
+  await page.locator('textarea[data-id="b"]').click();
   await page.keyboard.press('Tab');
 
   await expect.poll(async () => (await nodeById(request, 'b'))?.parentID).toBe('a');
@@ -109,13 +109,13 @@ test('typed text survives a reload', async ({ page, request }) => {
   await layTree(request, [node('a', null, 1, false, '')]);
   await open(page, 1);
 
-  await page.locator('input[data-id="a"]').click();
+  await page.locator('textarea[data-id="a"]').click();
   await page.keyboard.type('buy milk');
   await page.waitForTimeout(PAST_DEBOUNCE);
 
   await page.reload();
 
-  await expect(page.locator('input[data-id="a"]')).toHaveValue('buy milk');
+  await expect(page.locator('textarea[data-id="a"]')).toHaveValue('buy milk');
 });
 
 // 2026-07-12
@@ -145,7 +145,7 @@ test('text typed but not yet saved survives the page going away', async ({ page,
   await layTree(request, [node('a', null, 1, false, '')]);
   await open(page, 1);
 
-  await page.locator('input[data-id="a"]').click();
+  await page.locator('textarea[data-id="a"]').click();
   await page.keyboard.type('buy milk');
   await page.close(); // no wait: the debounce has not fired
 
@@ -160,7 +160,7 @@ test('text typed and followed by Enter survives the page going away', async ({ p
   await layTree(request, [node('a', null, 1, false, '')]);
   await open(page, 1);
 
-  await page.locator('input[data-id="a"]').click();
+  await page.locator('textarea[data-id="a"]').click();
   await page.keyboard.type('buy milk');
   await page.keyboard.press('Enter');
   await page.close();
@@ -183,7 +183,7 @@ test('an edit cannot overtake the create of the node it edits', async ({ page, r
     await route.continue();
   });
 
-  await page.locator('input[data-id="a"]').click();
+  await page.locator('textarea[data-id="a"]').click();
   await page.keyboard.press('End');
   await page.keyboard.press('Enter'); // create — held on the wire for 2s
   await page.keyboard.type('second line'); // edit on the new node — debounced 400ms
@@ -214,7 +214,7 @@ test('a mutation whose POST fails is retried, not dropped', async ({ page, reque
     await route.continue();
   });
 
-  await page.locator('input[data-id="a"]').click();
+  await page.locator('textarea[data-id="a"]').click();
   await page.keyboard.type('buy milk');
 
   await expect

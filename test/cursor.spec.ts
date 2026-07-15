@@ -217,7 +217,7 @@ test('on load, focus lands on the last visible input, caret at end', async ({ pa
   ]);
   await open(page, 2);
 
-  expect(await cursor(page)).toMatchObject({ tag: 'INPUT', id: 'z', start: 14, end: 14 });
+  expect(await cursor(page)).toMatchObject({ tag: 'TEXTAREA', id: 'z', start: 14, end: 14 });
 });
 
 // 2026-07-12
@@ -247,7 +247,7 @@ test('mousedown on an input is left alone by blankFocus', async ({ page, request
   await open(page, 3);
 
   // Click near the far left of the long line.
-  await page.locator('input[data-id="b"]').click({ position: { x: 3, y: 10 } });
+  await page.locator('textarea[data-id="b"]').click({ position: { x: 3, y: 10 } });
 
   const cur = await cursor(page);
   expect(cur.id).toBe('b');
@@ -267,7 +267,7 @@ test('mousedown on a checkbox does not pull focus into an input', async ({ page,
 
   await page.locator('button[data-id="k"]').click();
 
-  expect((await cursor(page)).tag).not.toBe('INPUT');
+  expect((await cursor(page)).tag).not.toBe('TEXTAREA');
 });
 
 // ─── Caret stability ─────────────────────────────────────────────────────────
@@ -330,7 +330,7 @@ test('checking the last open box leaves nothing focused', async ({ page, request
 
   // The completed tree vanished and a blank line took its place.
   await expect(page.locator('.todo-row')).toHaveCount(1);
-  expect(await page.locator('.todo-row input').inputValue()).toBe('');
+  expect(await page.locator('.todo-row textarea').inputValue()).toBe('');
 
   expect((await cursor(page)).tag).toBe('BODY'); // focus fell off the document
 });

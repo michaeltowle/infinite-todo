@@ -195,8 +195,13 @@ function render() {
     // click event only fires when no drag happened.
     btn.draggable = true;
 
-    const input = document.createElement("input");
+    // A textarea, not an <input>: a todo's text wraps onto as many lines as it needs
+    // rather than scrolling out of sight. Enter is still intercepted to make a new todo
+    // (see the keydown handler), so the text itself never carries a newline — the extra
+    // rows are pure soft-wrap. rows=1 is the floor; autosize() grows it to fit.
+    const input = document.createElement("textarea");
     input.dataset.id = n.id;
+    input.rows = 1;
     input.value = n.keyboardText || "";
     input.placeholder = "Todo";
 
@@ -205,8 +210,19 @@ function render() {
     frag.appendChild(row);
   }
   list.appendChild(frag);
+  // Height is content-driven, so it can only be measured once the rows are in the DOM.
+  for (const ta of list.querySelectorAll<HTMLTextAreaElement>("textarea[data-id]")) {
+    autosize(ta);
+  }
   renderBuckets();
   applyPending();
+}
+
+// Grow a todo's textarea to exactly fit its wrapped text — no inner scrollbar, no fixed
+// row count. Reset to auto first so it can shrink as well as grow.
+function autosize(ta: HTMLTextAreaElement) {
+  ta.style.height = "auto";
+  ta.style.height = ta.scrollHeight + "px";
 }
 
 // ── Buckets ──
@@ -251,9 +267,14 @@ function renderBuckets() {
   const frag = document.createDocumentFragment();
   for (const b of buckets) {
     const el = document.createElement("div");
-    // The active bucket carries .bucket-active so the sidebar shows which view you
-    // are in — the lens is otherwise invisible.
-    el.className = b.key === active.key ? "pill bucket bucket-active" : "pill bucket";
+    // The active bucket carries .bucket-active so the sidebar shows which view you are
+    // in. Hairlines group the ladder into three: capture (Unbucketed, Today), the dated
+    // days, and the dateless planning buckets — a rule under Today and over Big Ticket.
+    let cls = "pill bucket";
+    if (b.key === active.key) cls += " bucket-active";
+    if (b.key === "today") cls += " bucket-rule-below";
+    if (b.key === "big-ticket") cls += " bucket-rule-above";
+    el.className = cls;
     el.id = b.id;
     el.dataset.key = b.key;
     // The drop target's hideUntil: a date, a sentinel, or empty for Unbucketed (which
@@ -366,7 +387,7 @@ function applyPending() {
   pending = null;
 }
 function focusLine(id: string, col: number | null) {
-  const el = list.querySelector<HTMLInputElement>('input[data-id="' + id + '"]');
+  const el = list.querySelector<HTMLTextAreaElement>('textarea[data-id="' + id + '"]');
   if (!el) return;
   el.focus();
   const c = col == null ? el.value.length : col;
@@ -417,9 +438,9 @@ function moveCaret(from: Line, to: Line, col: number) {
 function blankFocus(e: MouseEvent) {
   const t = e.target as HTMLElement;
   desiredX = null; // a mousedown places the caret by hand, ending any arrow run
-  if (t.tagName === "INPUT" || t.tagName === "BUTTON") return;
+  if (t.tagName === "TEXTAREA" || t.tagName === "BUTTON") return;
   if (t.closest("#mono-sidebar")) return; // the sidebar's own clicks are not the page's
-  const inputs = list.querySelectorAll<HTMLInputElement>("input[data-id]");
+  const inputs = list.querySelectorAll<HTMLTextAreaElement>("textarea[data-id]");
   const last = inputs[inputs.length - 1];
   if (last) {
     e.preventDefault();
@@ -493,8 +514,8 @@ function applyRemote(batch: Mutation[]) {
 // render() destroys focus and caret by construction, so a re-render we did not ask
 // for has to state where the cursor should end up first.
 function repositionCursorAfterRender() {
-  const el = document.activeElement as HTMLInputElement | null;
-  if (el && el.tagName === "INPUT" && el.dataset.id) {
+  const el = document.activeElement as HTMLTextAreaElement | null;
+  if (el && el.tagName === "TEXTAREA" && el.dataset.id) {
     pending = { id: el.dataset.id, col: el.selectionStart ?? 0 };
   }
   render();
@@ -512,7 +533,8 @@ function lineOf(id: string) {
   return currentLines.find((l) => l.node.id === id);
 }
 
-function onInput(node: Todo, input: HTMLInputElement) {
+function onInput(node: Todo, input: HTMLTextAreaElement) {
+  autosize(input); // a keystroke may have added or removed a wrapped row
   const val = input.value;
   const cur = nodesById.get(node.id);
   if (cur) nodesById.set(node.id, { ...cur, keyboardText: val });
@@ -561,7 +583,7 @@ function hideUntilFor(parentID: string | null): string | null {
   return parentID == null ? activeBucket().hideUntil : null;
 }
 
-function onEnter(line: Line, input: HTMLInputElement) {
+function onEnter(line: Line, input: HTMLTextAreaElement) {
   const node = line.node;
   const col = input.selectionStart ?? 0;
   const nid = crypto.randomUUID();
@@ -618,7 +640,7 @@ function onEnter(line: Line, input: HTMLInputElement) {
   render();
 }
 
-function onBackspaceEmpty(line: Line, input: HTMLInputElement) {
+function onBackspaceEmpty(line: Line, input: HTMLTextAreaElement) {
   if (input.value !== "") return false;
   if (nodesById.size <= 1) return false;
   const i = currentLines.findIndex((l) => l.node.id === line.node.id);
@@ -635,7 +657,7 @@ function onBackspaceEmpty(line: Line, input: HTMLInputElement) {
 // The topmost visible line has nothing above to merge into, so onBackspaceEmpty
 // leaves it alone. When it's empty and childless, delete it instead and drop the
 // caret onto the line that rises to take its place. No-op on the sole line.
-function onDeleteTopmostEmpty(line: Line, input: HTMLInputElement) {
+function onDeleteTopmostEmpty(line: Line, input: HTMLTextAreaElement) {
   if (input.value !== "") return false;
   const i = currentLines.findIndex((l) => l.node.id === line.node.id);
   if (i !== 0) return false; // only the topmost line
@@ -693,7 +715,7 @@ function onOutdent(line: Line, col: number) {
   render();
 }
 
-function onArrow(dir: "up" | "down", line: Line, input: HTMLInputElement) {
+function onArrow(dir: "up" | "down", line: Line, input: HTMLTextAreaElement) {
   const i = currentLines.findIndex((l) => l.node.id === line.node.id);
   const j = dir === "up" ? i - 1 : i + 1;
   if (j < 0 || j >= currentLines.length) {
@@ -708,16 +730,16 @@ function onArrow(dir: "up" | "down", line: Line, input: HTMLInputElement) {
 
 // ── Event wiring (delegated, so re-renders don't re-attach) ──
 list.addEventListener("input", (e) => {
-  const t = e.target as HTMLInputElement;
-  if (t.dataset && t.dataset.id && t.tagName === "INPUT") {
+  const t = e.target as HTMLTextAreaElement;
+  if (t.dataset && t.dataset.id && t.tagName === "TEXTAREA") {
     desiredX = null; // paste and IME move the caret without ever firing keydown
     const line = lineOf(t.dataset.id);
     if (line) onInput(line.node, t);
   }
 });
 list.addEventListener("keydown", (e) => {
-  const t = e.target as HTMLInputElement;
-  if (!(t.dataset && t.dataset.id && t.tagName === "INPUT")) return;
+  const t = e.target as HTMLTextAreaElement;
+  if (!(t.dataset && t.dataset.id && t.tagName === "TEXTAREA")) return;
   const line = lineOf(t.dataset.id);
   if (!line) return;
   // Only a run of vertical arrows holds a desired x; every other key moves the caret
@@ -791,7 +813,7 @@ document.title = "Scratchpad";
 // ── Auto-seed: keep the active view from becoming a dead end ──
 // With nothing visible in the current view (a fresh scratchpad, every tree in it checked
 // off, its last tree bucketed elsewhere, or an empty bucket you just navigated to) no
-// row renders, and since every keystroke handler is delegated off an input[data-id]
+// row renders, and since every keystroke handler is delegated off a textarea[data-id]
 // target, there would be nothing to type into. So drop one blank todo into the active
 // view. Caller re-renders.
 function seedActiveIfEmpty() {
@@ -823,7 +845,7 @@ function seedActiveIfEmpty() {
 loadTree().then(() => {
   seedActiveIfEmpty();
   render();
-  const inputs = list.querySelectorAll<HTMLInputElement>("input[data-id]");
+  const inputs = list.querySelectorAll<HTMLTextAreaElement>("textarea[data-id]");
   const last = inputs[inputs.length - 1];
   if (last) last.focus();
   connectSocket();
