@@ -29,7 +29,7 @@ export type BucketKey =
   | "unbucketed"
   | "today"
   | `day-${number}`
-  | "bigticket"
+  | "big-ticket"
   | "someday";
 
 export interface Bucket {
@@ -41,7 +41,7 @@ export interface Bucket {
 
 // The dateless bucket for planning trees. A sentinel, like SOMEDAY: never a real
 // date, so a node carrying it is never "arrived".
-export const BIG_TICKET = "bigticket";
+export const BIG_TICKET = "big-ticket";
 
 // How many calendar days after today get their own bucket. Six reaches a week out,
 // which with Today at the head is a rolling seven-day window.
@@ -97,8 +97,8 @@ export function bucketsFor(now: Date = new Date()): Bucket[] {
     });
   }
   buckets.push({
-    key: "bigticket",
-    id: "bucket-bigticket",
+    key: "big-ticket",
+    id: "bucket-big-ticket",
     label: "Big Ticket",
     hideUntil: BIG_TICKET,
   });

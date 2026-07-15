@@ -44,7 +44,7 @@ test('the bucket-box shows the full ladder of buckets', async ({ page, request }
   await expect(page.locator('.bucket').first()).toContainText('Unbucketed');
   await expect(page.locator('[data-key="today"]')).toContainText('Today');
   await expect(page.locator('[data-key="day-1"]')).toContainText('Tomorrow');
-  await expect(page.locator('#bucket-bigticket')).toContainText('Big Ticket');
+  await expect(page.locator('#bucket-big-ticket')).toContainText('Big Ticket');
   await expect(page.locator('.bucket').last()).toContainText('Someday');
   // Tomorrow's drop target hands out tomorrow's date.
   await expect(page.locator('[data-key="day-1"]')).toHaveAttribute('data-hide-until', TOMORROW());
@@ -200,11 +200,11 @@ test('a todo created while viewing a bucket takes that bucket', async ({
   await layTree(request, [node('anchor', null, 1, false, 'anchor')]);
   await open(page, 1);
 
-  await page.locator('#bucket-bigticket').click();
+  await page.locator('#bucket-big-ticket').click();
   // Empty Big Ticket seeds a blank line to type into — but a blank is not work, so it
   // must not show up in the bucket's count.
   await expect(page.locator('.todo-row')).toHaveCount(1);
-  await expect(page.locator('#bucket-bigticket .pill-text-secondary')).toHaveText('');
+  await expect(page.locator('#bucket-big-ticket .pill-text-secondary')).toHaveText('');
   const input = page.locator('#todo-container input').first();
   await input.fill('a big one');
   await input.press('Enter'); // flushes the text edit + creates a sibling, both in Big Ticket
@@ -213,7 +213,7 @@ test('a todo created while viewing a bucket takes that bucket', async ({
     .poll(async () =>
       (await readTree(request)).find((n) => n.keyboardText === 'a big one')?.hideUntil,
     )
-    .toBe('bigticket');
+    .toBe('big-ticket');
 
   // It belongs to Big Ticket, not Unbucketed: the anchor is still the only thing there.
   await page.locator('#bucket-unbucketed').click();
@@ -231,11 +231,11 @@ test('dropping a todo on Big Ticket moves it there', async ({ page, request }) =
   ]);
   await open(page, 2);
 
-  await dragToBucket(page, 'a', '#bucket-bigticket');
+  await dragToBucket(page, 'a', '#bucket-big-ticket');
 
   await expect(page.locator('input[data-id="a"]')).toHaveCount(0);
-  await expect.poll(async () => (await nodeById(request, 'a'))?.hideUntil).toBe('bigticket');
-  await expect(page.locator('#bucket-bigticket .pill-text-secondary')).toHaveText('1');
+  await expect.poll(async () => (await nodeById(request, 'a'))?.hideUntil).toBe('big-ticket');
+  await expect(page.locator('#bucket-big-ticket .pill-text-secondary')).toHaveText('1');
 });
 
 // A todo bucketed for a day the calendar has reached is not lost: it surfaces in the
