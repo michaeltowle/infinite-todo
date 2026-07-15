@@ -6,9 +6,7 @@ Note: In this area, nomenclature is given as css classes, but wherever these wor
 - sidebar.double-sidebar#left-sidebar
 - sidebar.double-sidebar#right-sidebar
 - sidebar.mono-sidebar#mono-sidebar
-- sidebar-box.pill-container.action-box
 - sidebar-box.pill-container.info-box
-- pill.action-pill
 - pill.info-pill
 - todo-row
 - todo-row.todo-checked
@@ -18,20 +16,15 @@ Note: In this area, nomenclature is given as css classes, but wherever these wor
 - sidebar-box.pill-container.bucket-box
 - pill.bucket.bucket-over : drag-hover state
 - pill.bucket.bucket-active : bucket currently in view and editable
+- pill.bucket.bucket-rule-above
+- pill.bucket.bucket-rule-below
 
 SUBAREA: UI Pills
-
-ACTION-PILLS
-
-1. #copy-as-json-raw-array
-2. #copy-as-json-nested-object-tree
 
 INFO-PILLS
 
 1. #deployed-timestamp
 2. #on-branch-branchname
-3. #page-edit-timestamp
-4. #commit-timestamp
 
 AREA: "TODO" terminology
 
@@ -51,7 +44,5 @@ AREA: Persistence
 
 AREA: Buckets
 
-- "bucket" : a drop-target day in the bucket-box. Drop a todo on one and it leaves
-  #todo-container until that morning, taking its subtree with it. Click a bucket to
-  tip its contents back onto the board.
+- "bucket"
 - hideUntil - the day a todo slides back into "today" if a YYYY-MM-DD date. Else, a special bucket ("someday", "big-ticket"), or unbucketed if null.
