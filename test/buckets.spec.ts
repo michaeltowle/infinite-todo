@@ -184,10 +184,10 @@ test('a bucket counts the trees waiting in it, not their lines', async ({
   await expect(page.locator('#bucket-someday .pill-text-secondary')).toHaveText('');
 
   await dragToBucket(page, 'parent', '#bucket-someday');
-  await expect(page.locator('#bucket-someday .pill-text-secondary')).toHaveText('1');
+  await expect(page.locator('#bucket-someday .pill-text-secondary')).toHaveText('1x');
 
   await dragToBucket(page, 'solo', '#bucket-someday');
-  await expect(page.locator('#bucket-someday .pill-text-secondary')).toHaveText('2');
+  await expect(page.locator('#bucket-someday .pill-text-secondary')).toHaveText('2x');
 });
 
 // A bucket is its own scratchpad: a todo typed while viewing a bucket belongs to that
@@ -235,7 +235,7 @@ test('dropping a todo on Big Ticket moves it there', async ({ page, request }) =
 
   await expect(page.locator('textarea[data-id="a"]')).toHaveCount(0);
   await expect.poll(async () => (await nodeById(request, 'a'))?.hideUntil).toBe('big-ticket');
-  await expect(page.locator('#bucket-big-ticket .pill-text-secondary')).toHaveText('1');
+  await expect(page.locator('#bucket-big-ticket .pill-text-secondary')).toHaveText('1x');
 });
 
 // A todo bucketed for a day the calendar has reached is not lost: it surfaces in the

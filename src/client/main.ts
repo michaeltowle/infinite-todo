@@ -26,6 +26,7 @@ import {
   type Bucket,
   type BucketKey,
 } from "./buckets.ts";
+import { optparse } from "./optparse.ts";
 
 const INDENT = 28;
 const FONT = "16px -apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif";
@@ -285,12 +286,12 @@ function renderBuckets() {
     label.className = "pill-text-primary";
     label.textContent = b.label;
 
-    // The count is what makes the bucket a plan rather than a hole to drop things
-    // into: it says how much of next Wednesday you have already spent.
+    // The secondary line is what makes the bucket a plan rather than a hole to drop
+    // things into: how many trees are waiting in it, and how much of next Wednesday they
+    // have already spent (see bucketSecondary — "3x (2:30)").
     const count = document.createElement("span");
     count.className = "pill-text-secondary";
-    const n = countIn(b);
-    count.textContent = n ? String(n) : "";
+    count.textContent = bucketSecondary(b);
 
     el.appendChild(label);
     el.appendChild(count);
@@ -322,6 +323,49 @@ function isBlankLeaf(node: Todo): boolean {
     !(node.keyboardText || "").trim() &&
     childrenOf(nodesById, node.id).length === 0
   );
+}
+
+// The bucket pill's amber secondary line: its unchecked-tree count as "Nx" (the "x" reads
+// "times") and the cumulative time-est of its unchecked todos as "(h:mm)", each shown only
+// when nonzero, e.g. "3x (2:30)". Both zero (an empty bucket) → the empty string, so no
+// secondary text renders at all.
+function bucketSecondary(b: Bucket): string {
+  const n = countIn(b);
+  const mins = cumulativeTimeEstUnchecked(b);
+  let out = n ? n + "x" : "";
+  if (mins > 0) out += (out ? " " : "") + "(" + formatTimeEst(mins) + ")";
+  return out;
+}
+
+// The cumulative time-est, in minutes, of every unchecked todo whose tree lives in bucket
+// b. Bucket membership is a root property, so we start from the roots that belong to b and
+// walk each subtree; a checked node contributes nothing, so a fully-checked (retired) tree
+// naturally sums to zero. Each node's time-est is re-derived from its keyboardText by
+// optparse — nothing is stored. The keyboardText.includes("#") guard skips the parse for
+// the common tag-less line.
+function cumulativeTimeEstUnchecked(b: Bucket): number {
+  let total = 0;
+  for (const root of childrenOf(nodesById, null)) {
+    if (!inBucket(root, b, today)) continue;
+    for (const id of subtreeIDs(nodesById, root.id)) {
+      const node = nodesById.get(id);
+      if (!node || node.checked) continue;
+      const kt = node.keyboardText || "";
+      if (!kt.includes("#")) continue;
+      const mins = optparse(kt).getKey["time-est"];
+      if (mins) total += mins;
+    }
+  }
+  return total;
+}
+
+// Integer minutes → "h:mm": hours un-padded, minutes always two digits. 150 → "2:30",
+// 65 → "1:05", 45 → "0:45", 600 → "10:00". Per NOMENCLATURE (cumulativeTimeEstUnchecked):
+// purely hh:mm, with no zero-padding of the hours.
+function formatTimeEst(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h + ":" + String(m).padStart(2, "0");
 }
 
 // Drop a todo into a bucket. The node keeps everything else — its text, its children,
@@ -521,13 +565,6 @@ function repositionCursorAfterRender() {
   render();
 }
 
-// ── optparse (STUB) ──
-// Real optparse (type detection from input + opts + 2nd-order effects) lands later.
-// For now every line is a todo-line-item and this hook does nothing.
-function optparse(text: string) {
-  return { type: "todo-line-item" };
-}
-
 // ── Command layer: keystroke → tree mutation(s) + cursor target ──
 function lineOf(id: string) {
   return currentLines.find((l) => l.node.id === id);
@@ -548,7 +585,10 @@ function onInput(node: Todo, input: HTMLTextAreaElement) {
       editTimers.delete(node.id);
     }, DEBOUNCE_MS),
   );
-  optparse(val); // stubbed
+  // A '#'-tag may have just changed this bucket's cumulative time-est, so redraw the
+  // bucket-box. It is a different subtree from #todo-container, so this never touches the
+  // textarea the caret lives in — the no-re-render-on-type invariant is preserved.
+  renderBuckets();
 }
 
 function onToggle(btn: HTMLButtonElement) {
