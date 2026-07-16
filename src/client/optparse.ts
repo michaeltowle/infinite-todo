@@ -28,13 +28,14 @@ export interface Parsed {
   getKey: GetKey;
 }
 
-// The time-est valueTag: '#', an integer, then 'hr' or 'min', with nothing between the
-// parts, and the whole tag bounded by whitespace or a string end. So '#30min' and '#2hr'
-// match, while '#30minutes' (trailing letters), '#1 hr' (a space splits it) and
-// 'email#30min' (the '#' is not at a tag boundary) do not — they are left untouched in the
-// visible text. Multiple time-est tags on one line sum, so '#1hr #30min' reads as 90
-// minutes, which is also just a natural way to write an hour and a half.
-const TIME_EST = /(?:^|\s)#(\d+)(hr|min)(?=\s|$)/g;
+// The time-est valueTag: '#', a number (whole or with a decimal fraction, so both '#2hr'
+// and '#2.5hr' read), then 'hr' or 'min', with nothing between the parts, and the whole tag
+// bounded by whitespace or a string end. So '#30min', '#2hr' and '#2.5hr' match, while
+// '#30minutes' (trailing letters), '#1 hr' (a space splits it) and 'email#30min' (the '#'
+// is not at a tag boundary) do not — they are left untouched in the visible text. Multiple
+// time-est tags on one line sum, so '#1hr #30min' reads as 90 minutes, which is also just a
+// natural way to write an hour and a half.
+const TIME_EST = /(?:^|\s)#(\d+(?:\.\d+)?)(hr|min)(?=\s|$)/g;
 
 export function optparse(keyboardText: string): Parsed {
   const getKey: GetKey = {};
@@ -46,14 +47,16 @@ export function optparse(keyboardText: string): Parsed {
   // a single space and then collapsing runs keeps the words either side of a removed tag
   // apart without leaving a double space behind.
   const visibleDisplayText = keyboardText
-    .replace(TIME_EST, (_tag, digits: string, unit: string) => {
-      minutes += unit === "hr" ? Number(digits) * 60 : Number(digits);
+    .replace(TIME_EST, (_tag, amount: string, unit: string) => {
+      minutes += unit === "hr" ? Number(amount) * 60 : Number(amount);
       matched = true;
       return " ";
     })
     .replace(/\s+/g, " ")
     .trim();
 
-  if (matched) getKey["time-est"] = minutes;
+  // time-est is stored as integer minutes (NOMENCLATURE, OptParse), so a fractional tag
+  // such as '#2.5hr' (150) or an odd '#2.5min' folds down to a whole number here.
+  if (matched) getKey["time-est"] = Math.round(minutes);
   return { visibleDisplayText, getKey };
 }

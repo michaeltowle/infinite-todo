@@ -325,16 +325,15 @@ function isBlankLeaf(node: Todo): boolean {
   );
 }
 
-// The bucket pill's amber secondary line: its unchecked-tree count as "Nx" (the "x" reads
-// "times") and the cumulative time-est of its unchecked todos as "(h:mm)", each shown only
-// when nonzero, e.g. "3x (2:30)". Both zero (an empty bucket) → the empty string, so no
-// secondary text renders at all.
+// The bucket pill's amber secondary line. Time wins: if this bucket's unchecked todos carry
+// any cumulative time-est, that is shown alone as "h:mm" (e.g. "2:30"). Otherwise it falls
+// back to the unchecked-tree count as "Nx" (the "x" reads "times"). An empty bucket — no
+// time and no count — yields the empty string, so no secondary text renders at all.
 function bucketSecondary(b: Bucket): string {
-  const n = countIn(b);
   const mins = cumulativeTimeEstUnchecked(b);
-  let out = n ? n + "x" : "";
-  if (mins > 0) out += (out ? " " : "") + "(" + formatTimeEst(mins) + ")";
-  return out;
+  if (mins > 0) return formatTimeEst(mins);
+  const n = countIn(b);
+  return n ? n + "x" : "";
 }
 
 // The cumulative time-est, in minutes, of every unchecked todo whose tree lives in bucket
