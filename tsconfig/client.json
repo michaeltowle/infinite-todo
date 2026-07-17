@@ -15,7 +15,7 @@
   },
   "include": [
     "../src/client/**/*.ts",
-    "../src/last-deployment-timestamp.ts",
+    "../generated/last-deployment-timestamp.ts",
     "../src/shared-types.d.ts"
   ]
 }

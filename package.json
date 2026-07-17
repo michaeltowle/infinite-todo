@@ -8,7 +8,7 @@
     "typecheck": "tsc --build",
     "run-test-suite": "playwright test",
     "dev": "node scripts/build-client.mts --watch & wrangler dev",
-    "predeploy": "node scripts/generate-deployment-timestamp.mts deploy && npm run typecheck",
+    "predeploy": "npm run typecheck",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {

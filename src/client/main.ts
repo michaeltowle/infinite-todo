@@ -9,7 +9,7 @@
 // (buckets.ts), and here — a data/tree mirror, a render, an isolated cursor module,
 // and a command layer that translates keystrokes into tree mutations.
 
-import { lastDeploymentTimestamp } from "../last-deployment-timestamp.ts";
+import { lastDeploymentTimestamp } from "../../generated/last-deployment-timestamp.ts";
 import {
   between,
   childrenOf,

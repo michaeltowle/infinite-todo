@@ -16,7 +16,7 @@
   "include": [
     "../src/index.ts",
     "../src/tree.ts",
-    "../src/last-deployment-timestamp.ts",
+    "../generated/last-deployment-timestamp.ts",
     "../src/shared-types.d.ts",
     "../src/worker-types.d.ts",
     "../generated/client-bundle.ts"
