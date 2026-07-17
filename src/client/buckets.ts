@@ -5,20 +5,26 @@
 // Drop a todo on a bucket and its subtree moves into that slice. Everything is one
 // field, the node's `hideUntil`:
 //
-//   Unbucketed  hideUntil === null       — the capture inbox, and the landing view
 //   Today       a real date <= today     — due today, plus anything overdue that has
 //                                           arrived (a bucketed day the calendar reached)
+//   Tonight     hideUntil === TONIGHT     — a dateless holding bucket for later today
 //   Tomorrow…   a real date === that day — the next six calendar days, one bucket each
-//   Big Ticket  hideUntil === BIG_TICKET  — a dateless holding bucket (see below)
-//   Someday     hideUntil === SOMEDAY     — the other dateless bucket; never arrives
+//   Vibe Coding hideUntil === VIBE_CODING — a dateless holding bucket
+//   Upcoming    hideUntil === UPCOMING    — a dateless holding bucket (see below)
+//   Someday     hideUntil === SOMEDAY     — a dateless holding bucket; never arrives
+//   Unbucketed  hideUntil === null        — the capture inbox, and the landing view
 //
 // The membership test is applied at depth 0 only: a subtree travels with its root, so
 // only a root's hideUntil decides which bucket its whole tree lives in (see project()).
 //
-// Big Ticket is where planning trees will eventually live. For now it behaves exactly
+// Upcoming is where planning trees will eventually live. For now it behaves exactly
 // like the other dateless buckets; later its pill will list each tree's top node with
 // days-to-due and percent-complete. That is deliberately unbuilt — due dates do not
 // exist yet.
+//
+// Tonight and Vibe Coding are, for now, plain dateless holding buckets like Someday:
+// you move todos into and out of them by hand, and nothing auto-arrives — there is no
+// time-of-day model yet, so "Tonight" does not roll into Today on its own.
 
 import { SOMEDAY } from "./tree.ts";
 
@@ -28,8 +34,10 @@ import { SOMEDAY } from "./tree.ts";
 export type BucketKey =
   | "unbucketed"
   | "today"
+  | "tonight"
   | `day-${number}`
-  | "big-ticket"
+  | "vibe-coding"
+  | "upcoming"
   | "someday";
 
 export interface Bucket {
@@ -39,9 +47,16 @@ export interface Bucket {
   hideUntil: string | null; // what a todo dropped here gets: null, a date, or a sentinel
 }
 
-// The dateless bucket for planning trees. A sentinel, like SOMEDAY: never a real
-// date, so a node carrying it is never "arrived".
-export const BIG_TICKET = "big-ticket";
+// The dateless holding buckets' hideUntil values. Sentinels, like SOMEDAY: never a real
+// date, so a node carrying one is never "arrived". Adding a bucket here means adding its
+// value to SENTINELS below too — that is the whole of what isRealDate needs to know.
+export const TONIGHT = "tonight";
+export const VIBE_CODING = "vibe-coding";
+export const UPCOMING = "upcoming";
+
+// Every dateless sentinel, in one place. isRealDate consults this so a sentinel is never
+// mistaken for a calendar date; a new holding bucket is one entry here, nothing scattered.
+const SENTINELS = new Set<string>([SOMEDAY, TONIGHT, VIBE_CODING, UPCOMING]);
 
 // How many calendar days after today get their own bucket. Six reaches a week out,
 // which with Today at the head is a rolling seven-day window.
@@ -79,13 +94,14 @@ function addDays(from: Date, n: number): Date {
   return d;
 }
 
-// The buckets as of `now`, in sidebar order: Unbucketed, Today, the next six days,
-// then the two dateless buckets. The dated labels are relative, so they are recomputed
-// rather than stored — Wednesday's bucket is a different date next week.
+// The buckets as of `now`, in sidebar order: Today, Tonight, the next six days, then the
+// dateless holding buckets Vibe Coding, Upcoming and Someday, and finally Unbucketed at
+// the foot. The dated labels are relative, so they are recomputed rather than stored —
+// Wednesday's bucket is a different date next week.
 export function bucketsFor(now: Date = new Date()): Bucket[] {
   const buckets: Bucket[] = [
-    { key: "unbucketed", id: "bucket-unbucketed", label: "Unbucketed", hideUntil: null },
     { key: "today", id: "bucket-today", label: "Today", hideUntil: ymd(now) },
+    { key: "tonight", id: "bucket-tonight", label: "Tonight", hideUntil: TONIGHT },
   ];
   for (let offset = 1; offset <= FUTURE_DAYS; offset++) {
     const date = addDays(now, offset);
@@ -97,16 +113,28 @@ export function bucketsFor(now: Date = new Date()): Bucket[] {
     });
   }
   buckets.push({
-    key: "big-ticket",
-    id: "bucket-big-ticket",
-    label: "Big Ticket",
-    hideUntil: BIG_TICKET,
+    key: "vibe-coding",
+    id: "bucket-vibe-coding",
+    label: "Vibe Coding",
+    hideUntil: VIBE_CODING,
+  });
+  buckets.push({
+    key: "upcoming",
+    id: "bucket-upcoming",
+    label: "Upcoming",
+    hideUntil: UPCOMING,
   });
   buckets.push({
     key: "someday",
     id: "bucket-someday",
     label: "Someday",
     hideUntil: SOMEDAY,
+  });
+  buckets.push({
+    key: "unbucketed",
+    id: "bucket-unbucketed",
+    label: "Unbucketed",
+    hideUntil: null,
   });
   return buckets;
 }
@@ -127,7 +155,7 @@ export function inBucket(node: Todo, bucket: Bucket, today: string): boolean {
   return hu === bucket.hideUntil;
 }
 
-// A real calendar date, as opposed to a sentinel (SOMEDAY / BIG_TICKET) or null.
+// A real calendar date, as opposed to a dateless sentinel or null.
 function isRealDate(hu: string | null): hu is string {
-  return hu !== null && hu !== SOMEDAY && hu !== BIG_TICKET;
+  return hu !== null && !SENTINELS.has(hu);
 }

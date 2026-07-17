@@ -11,10 +11,10 @@ interface Todo {
   position: number;
   checked: boolean;
   keyboardText: string;
-  // Which bucket this todo's tree belongs to (see buckets.ts): a YYYY-MM-DD date,
-  // "someday" or "big-ticket" for the two dateless buckets, or null for the Unbucketed
-  // capture inbox. Only the active bucket's todos are projected onto the page at a
-  // time (see project()/inBucket) — the rest are waiting, not gone.
+  // Which bucket this todo's tree belongs to (see buckets.ts): a YYYY-MM-DD date, one of
+  // the dateless sentinels ("tonight", "vibe-coding", "upcoming", "someday"), or null for
+  // the Unbucketed capture inbox. Only the active bucket's todos are projected onto the
+  // page at a time (see project()/inBucket) — the rest are waiting, not gone.
   hideUntil: string | null;
 }
 

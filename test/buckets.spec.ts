@@ -33,22 +33,30 @@ async function dragToBucket(page: Page, todoID: string, bucketSelector: string) 
     .dragTo(page.locator(bucketSelector));
 }
 
-// The sidebar is a fixed ladder: Unbucketed at the top (the landing view), then Today
-// and the next six days, then the two dateless buckets Big Ticket and Someday — ten in
-// all, with the nearest dated ones labelled relatively. 2026-07-15
+// The sidebar is a fixed ladder, in order: Today, Tonight, the next six days, then the
+// dateless holding buckets Vibe Coding, Upcoming and Someday, and Unbucketed alone at the
+// foot — twelve in all, with the nearest dated ones labelled relatively. Revised when
+// Tonight and Vibe Coding were added, Big Ticket became Upcoming, and Unbucketed moved
+// from the top to the bottom. 2026-07-17
 test('the bucket-box shows the full ladder of buckets', async ({ page, request }) => {
   await layTree(request, [node('a', null, 1, false, 'alpha')]);
   await open(page, 1);
 
-  await expect(page.locator('.bucket')).toHaveCount(10);
-  await expect(page.locator('.bucket').first()).toContainText('Unbucketed');
-  await expect(page.locator('[data-key="today"]')).toContainText('Today');
+  await expect(page.locator('.bucket')).toHaveCount(12);
+  await expect(page.locator('.bucket').first()).toContainText('Today');
+  await expect(page.locator('[data-key="tonight"]')).toContainText('Tonight');
   await expect(page.locator('[data-key="day-1"]')).toContainText('Tomorrow');
-  await expect(page.locator('#bucket-big-ticket')).toContainText('Big Ticket');
-  await expect(page.locator('.bucket').last()).toContainText('Someday');
+  await expect(page.locator('#bucket-vibe-coding')).toContainText('Vibe Coding');
+  await expect(page.locator('#bucket-upcoming')).toContainText('Upcoming');
+  await expect(page.locator('#bucket-someday')).toContainText('Someday');
+  await expect(page.locator('.bucket').last()).toContainText('Unbucketed');
   // Tomorrow's drop target hands out tomorrow's date.
   await expect(page.locator('[data-key="day-1"]')).toHaveAttribute('data-hide-until', TOMORROW());
-  // Unbucketed's drop target is the empty string — a dropped todo gets a null hideUntil.
+  // The dateless buckets hand out their sentinels; Unbucketed hands out the empty string
+  // (a dropped todo gets a null hideUntil).
+  await expect(page.locator('[data-key="tonight"]')).toHaveAttribute('data-hide-until', 'tonight');
+  await expect(page.locator('#bucket-vibe-coding')).toHaveAttribute('data-hide-until', 'vibe-coding');
+  await expect(page.locator('#bucket-upcoming')).toHaveAttribute('data-hide-until', 'upcoming');
   await expect(page.locator('#bucket-unbucketed')).toHaveAttribute('data-hide-until', '');
 });
 
@@ -192,7 +200,8 @@ test('a bucket counts the trees waiting in it, not their lines', async ({
 
 // A bucket is its own scratchpad: a todo typed while viewing a bucket belongs to that
 // bucket, so it stays put instead of vanishing the moment it is created. Enter makes a
-// second line in the same bucket. 2026-07-15
+// second line in the same bucket. Exercised through Upcoming (formerly Big Ticket).
+// 2026-07-15, retargeted to Upcoming 2026-07-17
 test('a todo created while viewing a bucket takes that bucket', async ({
   page,
   request,
@@ -200,42 +209,84 @@ test('a todo created while viewing a bucket takes that bucket', async ({
   await layTree(request, [node('anchor', null, 1, false, 'anchor')]);
   await open(page, 1);
 
-  await page.locator('#bucket-big-ticket').click();
-  // Empty Big Ticket seeds a blank line to type into — but a blank is not work, so it
+  await page.locator('#bucket-upcoming').click();
+  // Empty Upcoming seeds a blank line to type into — but a blank is not work, so it
   // must not show up in the bucket's count.
   await expect(page.locator('.todo-row')).toHaveCount(1);
-  await expect(page.locator('#bucket-big-ticket .pill-text-secondary')).toHaveText('');
+  await expect(page.locator('#bucket-upcoming .pill-text-secondary')).toHaveText('');
   const input = page.locator('#todo-container textarea').first();
   await input.fill('a big one');
-  await input.press('Enter'); // flushes the text edit + creates a sibling, both in Big Ticket
+  await input.press('Enter'); // flushes the text edit + creates a sibling, both in Upcoming
 
   await expect
     .poll(async () =>
       (await readTree(request)).find((n) => n.keyboardText === 'a big one')?.hideUntil,
     )
-    .toBe('big-ticket');
+    .toBe('upcoming');
 
-  // It belongs to Big Ticket, not Unbucketed: the anchor is still the only thing there.
+  // It belongs to Upcoming, not Unbucketed: the anchor is still the only thing there.
   await page.locator('#bucket-unbucketed').click();
   await expect(page.locator('#todo-container')).not.toContainText('a big one');
   await expect(page.locator('textarea[data-id="anchor"]')).toBeVisible();
 });
 
-// Big Ticket is a normal bucket for now — dropping a todo on it moves the tree there and
-// bumps its count, exactly like Someday. Its distinct pill display (top nodes, days-to-
-// due, percent-complete) comes later, once todos can carry due dates. 2026-07-15
-test('dropping a todo on Big Ticket moves it there', async ({ page, request }) => {
+// Upcoming (formerly Big Ticket) is a normal bucket for now — dropping a todo on it moves
+// the tree there and bumps its count, exactly like Someday. Its distinct pill display (top
+// nodes, days-to-due, percent-complete) comes later, once todos can carry due dates.
+// 2026-07-15, renamed to Upcoming 2026-07-17
+test('dropping a todo on Upcoming moves it there', async ({ page, request }) => {
   await layTree(request, [
     node('a', null, 1, false, 'alpha'),
     node('b', null, 2, false, 'beta'),
   ]);
   await open(page, 2);
 
-  await dragToBucket(page, 'a', '#bucket-big-ticket');
+  await dragToBucket(page, 'a', '#bucket-upcoming');
 
   await expect(page.locator('textarea[data-id="a"]')).toHaveCount(0);
-  await expect.poll(async () => (await nodeById(request, 'a'))?.hideUntil).toBe('big-ticket');
-  await expect(page.locator('#bucket-big-ticket .pill-text-secondary')).toHaveText('1x');
+  await expect.poll(async () => (await nodeById(request, 'a'))?.hideUntil).toBe('upcoming');
+  await expect(page.locator('#bucket-upcoming .pill-text-secondary')).toHaveText('1x');
+});
+
+// The two buckets added on 2026-07-17, Tonight and Vibe Coding, are plain dateless holding
+// buckets like Someday: dropping a todo on one moves its tree off the board and writes the
+// matching sentinel through to the Durable Object, while an untouched todo stays in the
+// Unbucketed capture inbox. 2026-07-17
+test('dropping a todo on Tonight or Vibe Coding persists its sentinel', async ({
+  page,
+  request,
+}) => {
+  await layTree(request, [
+    node('a', null, 1, false, 'alpha'),
+    node('b', null, 2, false, 'beta'),
+    node('c', null, 3, false, 'gamma'),
+  ]);
+  await open(page, 3);
+
+  await dragToBucket(page, 'a', '#bucket-tonight');
+  await dragToBucket(page, 'b', '#bucket-vibe-coding');
+
+  await expect.poll(async () => (await nodeById(request, 'a'))?.hideUntil).toBe('tonight');
+  await expect.poll(async () => (await nodeById(request, 'b'))?.hideUntil).toBe('vibe-coding');
+  expect((await nodeById(request, 'c'))?.hideUntil).toBeFalsy();
+});
+
+// The three hairlines that group the ladder land on specific buckets: a rule below
+// Tomorrow (day-1), and a rule above both Vibe Coding and Unbucketed — and nowhere else.
+// Locking these keeps the sidebar's grouping from drifting as buckets are added or
+// reordered. 2026-07-17
+test('the ladder hairlines fall under Tomorrow and over Vibe Coding and Unbucketed', async ({
+  page,
+  request,
+}) => {
+  await layTree(request, [node('a', null, 1, false, 'alpha')]);
+  await open(page, 1);
+
+  await expect(page.locator('[data-key="day-1"]')).toHaveClass(/bucket-rule-below/);
+  await expect(page.locator('#bucket-vibe-coding')).toHaveClass(/bucket-rule-above/);
+  await expect(page.locator('#bucket-unbucketed')).toHaveClass(/bucket-rule-above/);
+  await expect(page.locator('.bucket.bucket-rule-below')).toHaveCount(1);
+  await expect(page.locator('.bucket.bucket-rule-above')).toHaveCount(2);
 });
 
 // A todo bucketed for a day the calendar has reached is not lost: it surfaces in the

@@ -239,9 +239,11 @@ let buckets: Bucket[] = bucketsFor();
 let activeKey: BucketKey = "unbucketed";
 
 // The active bucket resolved against the current sidebar. Falls back to Unbucketed if
-// the key ever names a bucket that no longer exists (it always does today).
+// the key ever names a bucket that no longer exists (it always does today). Unbucketed
+// is no longer buckets[0] — it sits at the foot now — so the fallback names it directly.
 function activeBucket(): Bucket {
-  return buckets.find((b) => b.key === activeKey) ?? buckets[0];
+  return buckets.find((b) => b.key === activeKey)
+    ?? buckets.find((b) => b.key === "unbucketed")!;
 }
 
 // The lines of the active view: this bucket's trees, in document order, minus the
@@ -269,12 +271,14 @@ function renderBuckets() {
   for (const b of buckets) {
     const el = document.createElement("div");
     // The active bucket carries .bucket-active so the sidebar shows which view you are
-    // in. Hairlines group the ladder into three: capture (Unbucketed, Today), the dated
-    // days, and the dateless planning buckets — a rule under Today and over Big Ticket.
+    // in. Three hairlines group the ladder: the near-term views (Today, Tonight,
+    // Tomorrow), the further dated days, the dateless planning buckets (Vibe Coding,
+    // Upcoming, Someday), and Unbucketed alone at the foot — a rule under Tomorrow, over
+    // Vibe Coding, and over Unbucketed.
     let cls = "pill bucket";
     if (b.key === active.key) cls += " bucket-active";
-    if (b.key === "today") cls += " bucket-rule-below";
-    if (b.key === "big-ticket") cls += " bucket-rule-above";
+    if (b.key === "day-1") cls += " bucket-rule-below";
+    if (b.key === "vibe-coding" || b.key === "unbucketed") cls += " bucket-rule-above";
     el.className = cls;
     el.id = b.id;
     el.dataset.key = b.key;
