@@ -289,6 +289,32 @@ test('the ladder hairlines fall under Tomorrow and over Vibe Coding and Unbucket
   await expect(page.locator('.bucket.bucket-rule-above')).toHaveCount(2);
 });
 
+// Visiting an empty bucket persists a blank-seed placeholder so the view is not a dead end,
+// and that placeholder outlives the visit. Dropping a real todo into the same bucket later
+// must clear the leftover blank-seed rather than leave it parked above the real work. Here a
+// blank-seed sits in Someday from an earlier visit; dropping 'real' on Someday deletes it and
+// keeps only the real todo. 2026-07-19
+test('dropping a real todo into a bucket clears its leftover fake empty todo', async ({
+  page,
+  request,
+}) => {
+  await layTree(request, [
+    node('real', null, 1, false, 'real todo'),
+    node('blank-seed-0-someday', null, 2, false, '', 'someday'),
+  ]);
+  await open(page, 1); // Unbucketed shows only 'real'; the stale seed hides in Someday
+
+  await dragToBucket(page, 'real', '#bucket-someday');
+
+  // The real todo landed in Someday; the leftover blank-seed is gone, so Someday holds
+  // exactly one thing.
+  await expect.poll(async () => (await nodeById(request, 'real'))?.hideUntil).toBe('someday');
+  await expect.poll(async () => await nodeById(request, 'blank-seed-0-someday')).toBeUndefined();
+  await page.locator('#bucket-someday').click();
+  await expect(page.locator('.todo-row')).toHaveCount(1);
+  await expect(page.locator('textarea[data-id="real"]')).toBeVisible();
+});
+
 // A todo bucketed for a day the calendar has reached is not lost: it surfaces in the
 // Today view (due-today plus anything overdue), while a todo still in the future waits
 // in its own day bucket and shows in neither Today nor Unbucketed. 2026-07-15

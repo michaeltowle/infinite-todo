@@ -371,14 +371,38 @@ function formatTimeEst(minutes: number): string {
   return h + ":" + String(m).padStart(2, "0");
 }
 
+// The deletes that clear a bucket's leftover fake empty todo once real work lands in it.
+// Visiting an empty bucket persists a blank-seed line so the view is never a dead end (see
+// seedActiveIfEmpty), but that line outlives the visit; drop a real todo into the same
+// bucket later and the blank is left sitting above it. Returns a delete for every root-level
+// blank-seed still parked in `hideUntil`'s bucket — skipping `keepID` (the todo being
+// dropped in) and any seed since typed into (isBlankLeaf excludes those). The blank-seed id
+// prefix is what marks a line as the bucket's own placeholder rather than an empty line the
+// user deliberately made and left there.
+function seededBlankDeletions(hideUntil: string | null, keepID: string): Mutation[] {
+  const out: Mutation[] = [];
+  for (const node of childrenOf(nodesById, null)) {
+    if (node.id === keepID) continue;
+    if ((node.hideUntil ?? null) !== hideUntil) continue;
+    if (!node.id.startsWith("blank-seed-")) continue;
+    if (!isBlankLeaf(node)) continue;
+    out.push({ op: "delete", id: node.id });
+  }
+  return out;
+}
+
 // Drop a todo into a bucket. The node keeps everything else — its text, its children,
 // its place in the tree — and simply changes which view it belongs to (see inBucket()).
 // Dropping onto Unbucketed passes a null hideUntil, which is how a todo comes back out
-// of a dated bucket now that clicking navigates rather than empties.
+// of a dated bucket now that clicking navigates rather than empties. Real work arriving in
+// the bucket clears the fake empty todo it may have been seeded with, in the same batch.
 function bucketTodo(id: string, hideUntil: string | null) {
   const node = nodesById.get(id);
   if (!node) return;
-  commitLocal([{ op: "edit", id: id, hideUntil: hideUntil }]);
+  commitLocal([
+    { op: "edit", id: id, hideUntil: hideUntil },
+    ...seededBlankDeletions(hideUntil, id),
+  ]);
   seedActiveIfEmpty(); // moving the last visible tree out would otherwise leave a dead page
   render();
 }
