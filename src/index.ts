@@ -84,7 +84,11 @@ textarea::placeholder{color:#bcad90}
    .pill-container rule below), so the bucket-box reads as a horizontal bucket-nav. */
 @media (max-width:1279px){
   .scroll{flex-direction:column;align-items:center;justify-content:flex-start}
-  #todo-container{padding-bottom:56px}
+  /* Stacked with the pill-boxes below it, #todo-container reads as the top card of the
+     column, so it takes the boxes' look: an 8px inset from the screen edge (matching
+     #mono-sidebar's 0 8px padding, via max-width so .scroll keeps it centred) and the same
+     8px-radius full hairline border, in place of the desktop full-height left/right rules. */
+  #todo-container{max-width:calc(100% - 16px);padding-bottom:56px;border:1px solid rgba(120,90,40,.11);border-radius:8px}
   #mono-sidebar{position:static;z-index:auto;inset:auto;width:100%;max-width:var(--page-w);box-sizing:border-box;padding:0 8px 40px;flex-direction:column;justify-content:flex-start;gap:8px}
 }
 .pill-container{box-sizing:border-box;padding:12px;background:#faf5ea;border:1px solid rgba(120,90,40,.11);border-radius:8px;display:flex;flex-direction:column;gap:6px;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;line-height:1.5;color:#333}

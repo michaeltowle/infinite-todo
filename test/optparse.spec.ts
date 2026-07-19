@@ -9,6 +9,7 @@
 
 import { test, expect } from '@playwright/test';
 import { layTree, node, open } from './helpers.ts';
+import { optparse } from '../src/client/optparse.ts';
 
 // The landing view is Unbucketed, so a todo laid with a null hideUntil shows on open and
 // its bucket is the one whose secondary text we read.
@@ -98,4 +99,54 @@ test('typing a time tag updates the bucket total live', async ({ page, request }
   await page.locator('textarea[data-id="a"]').fill('task #45min');
 
   await expect(page.locator(SECONDARY)).toHaveText('0:45');
+});
+
+// ── due-date ──────────────────────────────────────────────────────────────────────────────
+// The due-date tag has no UI surface yet (the "days until" bucket that will read it is not
+// built), so — unlike time-est above — there is nothing on the page to assert against, and
+// adding a DOM surface purely to test it would break the "nothing in production solely to
+// serve tests" rule. These exercise the parser directly instead. A fixed `now` pins the
+// current year the yearless forms assume, so the assertions do not drift across calendar years.
+const JAN_2026 = new Date(2026, 0, 15);
+
+// A full ISO tag parses to itself and is stripped from the visible text. 2026-07-19
+test('a #yyyy-mm-dd tag parses to that date and leaves the text', () => {
+  const { visibleDisplayText, getKey } = optparse('ship the thing #2026-08-01', JAN_2026);
+  expect(getKey['due-date']).toBe('2026-08-01');
+  expect(visibleDisplayText).toBe('ship the thing');
+});
+
+// A bare month/day assumes the current year (from `now`) and reads mm-dd. All the flexible
+// spellings Mike asked for — '8-1', '8/1', zero-padded '08-01', and the month-name forms
+// 'aug1' / 'aug-1' / 'august1' — land on the same 2026-08-01. 2026-07-19
+test('the flexible mm-dd spellings all resolve to the same current-year date', () => {
+  for (const tag of ['#8-1', '#8/1', '#08-01', '#aug1', '#aug-1', '#august1']) {
+    expect(optparse('do it ' + tag, JAN_2026).getKey['due-date']).toBe('2026-08-01');
+  }
+});
+
+// We never read dd-mm: '#13-1' cannot be month 13, so it is not silently re-read as day 13 /
+// month 1 — it is not a real date, so it parses to nothing and is left in the visible text.
+// 2026-07-19
+test('a dd-mm-looking tag is rejected, not reinterpreted', () => {
+  const { visibleDisplayText, getKey } = optparse('note #13-1 here', JAN_2026);
+  expect(getKey['due-date']).toBeUndefined();
+  expect(visibleDisplayText).toBe('note #13-1 here');
+});
+
+// A tag of the right shape but an impossible calendar day (Feb 30) parses to null and is left
+// untouched, exactly as a malformed time tag is. 2026-07-19
+test('an impossible date is left in the text', () => {
+  const { visibleDisplayText, getKey } = optparse('plan #2-30', JAN_2026);
+  expect(getKey['due-date']).toBeUndefined();
+  expect(visibleDisplayText).toBe('plan #2-30');
+});
+
+// time-est and due-date coexist on one line: each is folded into getKey and stripped, leaving
+// only the prose. 2026-07-19
+test('a line can carry both a time-est and a due-date', () => {
+  const { visibleDisplayText, getKey } = optparse('taxes #30min #4-15', JAN_2026);
+  expect(getKey['time-est']).toBe(30);
+  expect(getKey['due-date']).toBe('2026-04-15');
+  expect(visibleDisplayText).toBe('taxes');
 });

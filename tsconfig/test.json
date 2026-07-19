@@ -9,5 +9,10 @@
     "types": ["node"],
     "outDir": "../.tsbuild/test"
   },
-  "include": ["../test/**/*.ts", "../playwright.config.ts"]
+  "include": ["../test/**/*.ts", "../playwright.config.ts"],
+  // A spec never imports the Worker (it talks to it over HTTP), but the client's pure,
+  // DOM-free logic modules are fair game to unit-test directly — optparse.spec.ts exercises
+  // the parser this way, since due-date has no page surface to assert against yet. The
+  // reference lets tsc resolve that import to the client project's declarations.
+  "references": [{ "path": "./client.json" }]
 }

@@ -65,3 +65,6 @@ The parse function takes the keyboardText, i.e. the raw user input, then loops t
   - Continued example: {"time-est": integer minutes }
 - keyValue
 - getKey : dictionary of key-value pairs. each todo has one getKey, even if it is empty.
+- list of keys
+  - time-est
+  - due-date
