@@ -131,24 +131,6 @@ test('ArrowDown into an empty line puts the caret at column 0', async ({ page, r
 });
 
 // 2026-07-12
-// walk() drops fully-checked top-level trees, so they render no input at all. The
-// arrows navigate the *visible* document, so a checked tree sitting between two
-// live ones is stepped straight over — not stopped at, not focused.
-test('arrows skip fully-checked (hidden) trees', async ({ page, request }) => {
-  await layTree(request, [
-    node('x', null, 1, false, 'visible one'),
-    node('done', null, 2, true, 'finished'), // checked, childless -> fullyChecked -> hidden
-    node('y', null, 3, false, 'visible two'),
-  ]);
-  await open(page, 2); // 'done' never renders
-
-  await putCaret(page, 'x', 0);
-  await page.keyboard.press('ArrowDown');
-
-  expect((await cursor(page)).id).toBe('y');
-});
-
-// 2026-07-12
 // Arrows follow document order (the flattened pre-order walk), not sibling order —
 // so they descend into children and climb back out to the next root.
 test('arrows traverse nested children in document order', async ({ page, request }) => {
@@ -220,11 +202,11 @@ test('on load, focus lands on the last visible input, caret at end', async ({ pa
   expect(await cursor(page)).toMatchObject({ tag: 'TEXTAREA', id: 'z', start: 14, end: 14 });
 });
 
-// 2026-07-12
-// blankFocus: mousedown anywhere that isn't an input or a checkbox is treated as
-// "put me back in the document" — it focuses the last input and drops the caret at
-// its end, so clicking dead space below the list never leaves you with nowhere to
-// type.
+// 2026-07-21
+// blankFocus: mousedown anywhere that isn't an input, a checkbox, the title or a sidebar is
+// treated as "put me back in the document" — it focuses the last input and drops the caret at
+// its end, so clicking dead space below the list never leaves you with nowhere to type. The
+// dead space now lives in #plan-page's bottom padding (the rows sit in #todo-container above).
 test('mousedown on blank space focuses the last input with the caret at the end', async ({
   page,
   request,
@@ -233,8 +215,8 @@ test('mousedown on blank space focuses the last input with the caret at the end'
   await open(page, 3);
   await putCaret(page, 'a', 0);
 
-  // Dead space inside #todo-container's 320px bottom padding.
-  await page.locator('#todo-container').click({ position: { x: 200, y: 260 } });
+  // Dead space inside #plan-page's bottom padding, below the rows.
+  await page.locator('#plan-page').click({ position: { x: 200, y: 300 } });
 
   expect(await cursor(page)).toMatchObject({ id: 'c', start: 1, end: 1 }); // end of 'd'
 });

@@ -52,78 +52,81 @@ function page(): Response {
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,${encodeURIComponent(iconSvg)}">
 <title>Scratchpad</title>
 <style>
-:root{--page-w:1200px}
-html,body{margin:0;padding:0;background:#f1ebdf;scrollbar-width:none}
+/* Laptop-first three-column shell: the plan-box on the left, the editable plan-page in the
+   middle, and the read-only today-box + deploy stamp on the right. */
+:root{--page-w:760px}
+html,body{margin:0;padding:0;background:#f1ebdf;scrollbar-width:none;color:#43392a;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif}
 html::-webkit-scrollbar,body::-webkit-scrollbar{display:none;width:0;height:0}
-.scroll{min-height:100vh;width:100%;display:flex;justify-content:center;background:#f1ebdf}
-/* The two .double-sidebar flankers stay pure gutters — they size and center
-   #todo-container and hold no content. #mono-sidebar carries both
-   pill-containers at every width, so the pills keep a single home in the DOM. */
-.sidebar{flex:1 1 0;min-width:0}
-@media (max-width:1279px){.double-sidebar{display:none}}
-#todo-container{width:var(--page-w);max-width:100%;background:#faf5ea;border-left:1px solid rgba(120,90,40,.11);border-right:1px solid rgba(120,90,40,.11);padding:92px 120px 320px;box-sizing:border-box}
-@media (max-width:1400px){:root{--page-w:900px}}
-@media (max-width:600px){#todo-container{padding:32px 16px 56px}}
+.scroll{min-height:100vh;display:flex;justify-content:center;align-items:flex-start;gap:24px;padding:28px 24px;box-sizing:border-box}
+
+/* The left/right panels flank the plan-page. Each is a column of sidebar-boxes. */
+.sidebar{flex:0 0 260px;align-self:stretch;display:flex;flex-direction:column;gap:16px;min-width:0}
+
+/* The plan-page: the editable card you plan on. Its <h1> is the plan's name (contenteditable,
+   Notion-style); #todo-container below it holds the rows. */
+#plan-page{flex:0 1 var(--page-w);max-width:100%;min-width:0;background:#faf5ea;border:1px solid rgba(120,90,40,.11);border-radius:10px;padding:56px 72px 200px;box-sizing:border-box}
+#plan-page h1{margin:0 0 22px;font-size:30px;font-weight:600;line-height:1.25;color:#43392a;outline:none;overflow-wrap:anywhere;cursor:text}
+#plan-page h1:empty::before{content:"Untitled plan";color:#cbb894}
+
 .todo-row{display:flex;align-items:flex-start;gap:12px;padding:3px 0}
-.todo-checked{flex:none;width:18px;height:18px;border-radius:4px;border:1.5px solid #cbb894;background:transparent;margin-top:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;color:#fff;font-size:12px;line-height:1}
+/* The checkbox doubles as the drag handle — grab a todo here and drop it on a plan pill. */
+.todo-checked{flex:none;width:18px;height:18px;border-radius:4px;border:1.5px solid #cbb894;background:transparent;margin-top:4px;cursor:grab;display:flex;align-items:center;justify-content:center;padding:0;color:#fff;font-size:12px;line-height:1}
+.todo-checked:active{cursor:grabbing}
 .todo-checked.checked{border-color:#9c7a3c;background:#9c7a3c}
 /* A textarea, not an <input>: long todos wrap instead of scrolling out of sight. The
    client's autosize() sets its height to fit, so resize/scrollbars stay off; overflow-wrap
    breaks a word too long for the line rather than forcing a horizontal scroll. */
-.todo-row textarea{flex:1;min-width:0;box-sizing:border-box;border:none;outline:none;background:transparent;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:16px;line-height:1.7;color:#43392a;padding:0;margin:0;display:block;resize:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere}
+.todo-row textarea{flex:1;min-width:0;box-sizing:border-box;border:none;outline:none;background:transparent;font-family:inherit;font-size:16px;line-height:1.7;color:#43392a;padding:0;margin:0;display:block;resize:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere}
 .todo-row[data-checked="1"] textarea{text-decoration:line-through;opacity:.5}
 textarea::placeholder{color:#bcad90}
-/* Pinned over the left gutter while the flankers show; a bottom bar once they
-   drop out; hidden on phones. position:fixed lifts it out of the flex row, so
-   the flankers still center #todo-container. */
-#mono-sidebar{position:fixed;z-index:10;left:5px;top:5px;bottom:5px;width:calc((100vw - var(--page-w)) / 2 - 10px);display:flex;flex-direction:column;justify-content:space-between;gap:6px}
-/* Below the flankers' width there is no gutter to pin the sidebar into. Rather than
-   float it over the content (the old bottom bar) or hide it (phones used to lose the
-   buckets entirely), the page stacks: .scroll becomes a column and #mono-sidebar leaves
-   position:fixed to flow in underneath #todo-container. The pills wrap into rows (see the
-   .pill-container rule below), so the bucket-box reads as a horizontal bucket-nav. */
-@media (max-width:1279px){
-  .scroll{flex-direction:column;align-items:center;justify-content:flex-start}
-  /* Stacked with the pill-boxes below it, #todo-container reads as the top card of the
-     column, so it takes the boxes' look: an 8px inset from the screen edge (matching
-     #mono-sidebar's 0 8px padding, via max-width so .scroll keeps it centred) and the same
-     8px-radius full hairline border, in place of the desktop full-height left/right rules. */
-  #todo-container{max-width:calc(100% - 16px);padding-bottom:56px;border:1px solid rgba(120,90,40,.11);border-radius:8px}
-  #mono-sidebar{position:static;z-index:auto;inset:auto;width:100%;max-width:var(--page-w);box-sizing:border-box;padding:0 8px 40px;flex-direction:column;justify-content:flex-start;gap:8px}
-}
-.pill-container{box-sizing:border-box;padding:12px;background:#faf5ea;border:1px solid rgba(120,90,40,.11);border-radius:8px;display:flex;flex-direction:column;gap:6px;font-family:-apple-system,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;line-height:1.5;color:#333}
-@media (max-width:1279px){.pill-container{flex-direction:row;flex-wrap:wrap;align-items:center}}
-.pill{display:flex;flex-wrap:wrap;gap:5px;align-items:baseline;background:transparent;border-radius:3px;padding:4px 7px}
-.pill-text-primary{color:#333;white-space:nowrap}
+
+/* Sidebar boxes: cream cards holding pills. */
+.pill-container{box-sizing:border-box;padding:12px;background:#faf5ea;border:1px solid rgba(120,90,40,.11);border-radius:8px;display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:1.5;color:#333}
+/* The deploy stamp sinks to the foot of the right panel. */
+.info-box{margin-top:auto;font-size:11px;gap:6px}
+.pill{display:flex;flex-wrap:wrap;gap:5px;align-items:baseline;background:transparent;border-radius:4px;padding:5px 8px}
+.pill-text-primary{color:#333}
 .pill-text-secondary{color:#b07a30;white-space:nowrap}
-/* A bucket is both a view and a drop-target. Click one and #todo-container shows only
-   its todos (.bucket-active marks the one you are looking through); drag a todo by its
-   checkbox and let go here to move it into that bucket. .bucket-over is the drag-hover
-   state — the only feedback that the drop will land. */
-.bucket{cursor:pointer;transition:background .12s}
-.bucket:hover{background:#f1e7d3}
-.bucket.bucket-active{background:#efe3ca;box-shadow:inset 3px 0 0 #9c7a3c}
-.bucket.bucket-active .pill-text-primary{color:#8a5a1e;font-weight:600}
-.bucket.bucket-over{background:#eadcbe;box-shadow:inset 0 0 0 1px #9c7a3c}
-/* Hairlines split the ladder into capture / days / dateless. Only meaningful in the
-   vertical column (≥1280px); in the wrapped mobile bucket-nav they would just underline
-   one pill, so they are scoped out below that width. */
-@media (min-width:1280px){
-  .bucket.bucket-rule-below{margin-bottom:5px;padding-bottom:9px;border-bottom:1px solid rgba(120,90,40,.18)}
-  .bucket.bucket-rule-above{margin-top:5px;padding-top:9px;border-top:1px solid rgba(120,90,40,.18)}
+
+/* Plan pills: click to open a plan's page; drag a todo here to move it into that plan.
+   .plan-active marks the plan you are looking at, .plan-over the drag-hover target. */
+.plan{cursor:pointer;justify-content:space-between;transition:background .12s}
+.plan .pill-text-primary{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plan:hover{background:#f1e7d3}
+.plan.plan-active{background:#efe3ca;box-shadow:inset 3px 0 0 #9c7a3c}
+.plan.plan-active .pill-text-primary{color:#8a5a1e;font-weight:600}
+.plan.plan-over{background:#eadcbe;box-shadow:inset 0 0 0 1px #9c7a3c}
+/* The one control in the plan-box: make a new plan. */
+.add-plan{cursor:pointer;color:#a98a55;margin-top:4px;transition:background .12s,color .12s}
+.add-plan:hover{background:#f1e7d3;color:#8a5a1e}
+
+/* Today-box: a read-only list of what is due today, gathered across every plan. */
+.today-head{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#a98a55;padding:2px 8px 6px}
+.today-todo{padding:4px 8px;color:#43392a;border-radius:4px;overflow-wrap:anywhere}
+.today-empty{padding:4px 8px;color:#bcad90;font-style:italic}
+
+/* Below laptop width the three columns stack: plans, then the plan-page, then today. */
+@media (max-width:1000px){
+  .scroll{flex-direction:column;align-items:center}
+  .sidebar{flex:none;align-self:auto;width:100%;max-width:var(--page-w)}
+  #left-sidebar{order:1}
+  #plan-page{order:2;width:100%;padding:40px 24px 80px}
+  #right-sidebar{order:3}
+  .info-box{margin-top:0}
 }
-/* The checkbox doubles as the drag handle (see render() in the client). */
-.todo-checked{cursor:grab}
-.todo-checked:active{cursor:grabbing}
 </style>
 </head>
 <body>
 <div class="scroll" id="scroll">
-<div class="sidebar double-sidebar" id="left-sidebar"></div>
+<div class="sidebar double-sidebar" id="left-sidebar">
+<div class="sidebar-box pill-container plan-box" id="plan-box"></div>
+</div>
+<div id="plan-page">
+<h1 contenteditable="true" spellcheck="false"></h1>
 <div id="todo-container"></div>
-<div class="sidebar double-sidebar" id="right-sidebar"></div>
-<div class="sidebar mono-sidebar" id="mono-sidebar">
-<div class="sidebar-box pill-container bucket-box" id="bucket-box"></div>
+</div>
+<div class="sidebar double-sidebar" id="right-sidebar">
+<div class="sidebar-box pill-container today-box" id="today-box"></div>
 <div class="sidebar-box pill-container info-box">
 <div class="pill info-pill" id="deployed-timestamp"><span class="pill-text-primary">deployed</span> <span class="pill-text-secondary"></span></div>
 <div class="pill info-pill" id="on-branch-branchname"><span class="pill-text-primary">from branch</span> <span class="pill-text-secondary"></span></div>

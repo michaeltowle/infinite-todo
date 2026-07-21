@@ -108,7 +108,3 @@ export function project(
   })(null, 0);
   return lines;
 }
-
-// The hideUntil value of the dateless bucket. A sentinel rather than a date, so
-// it can never arrive; `> today` would be false for any real date we could pick.
-export const SOMEDAY = "someday";

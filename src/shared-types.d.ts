@@ -4,36 +4,51 @@
 
 // The stored fields of a todo-line-item — one storage entry per node, under
 // `element:<id>`. `documentPosition` and `depthLevel` are deliberately absent:
-// they are computed at render, never stored.
+// they are computed at render, never stored. A todo's `date` is absent too — it is
+// DERIVED from keyboardText by optparse (see optparse.ts), never stored.
 interface Todo {
   id: string;
   parentID: string | null;
   position: number;
   checked: boolean;
   keyboardText: string;
-  // Which bucket this todo's tree belongs to (see buckets.ts): a YYYY-MM-DD date, one of
-  // the dateless sentinels ("tonight", "vibe-coding", "upcoming", "someday"), or null for
-  // the Unbucketed capture inbox. Only the active bucket's todos are projected onto the
-  // page at a time (see project()/inBucket) — the rest are waiting, not gone.
-  hideUntil: string | null;
+  // Which plan this todo's tree belongs to (see plans.ts). Read at depth 0 only: a
+  // subtree travels with its root, so only a root's planID decides which plan its whole
+  // tree lives in — a child's is null and resolved by walking to its root (rootOf).
+  planID: string | null;
 }
 
-// An edit travels as a mutation, never a whole-document rewrite. Three ops, ours
-// (they were once the XQuery Update Facility's insert/delete/replace/move, but
-// `replace` and `move` were one operation to the store and only ever differed in
-// intent, so they are now the single `edit`). Modelled as a discriminated union on
-// `op`, so the compiler knows a `create` carries a full node while an `edit`
-// carries only the fields it means to overwrite — and a `delete` carries nothing
-// but the id.
-type Mutation = CreateMutation | EditMutation | DeleteMutation;
+// A plan — the named container a todo lives in, and the editable page you look at it on.
+// One storage entry per plan, under `plan:<id>`. Unlike a todo, a plan carries its own
+// name (shown as the plan-page's <h1> and on its sidebar pill). A plan is archived — it
+// "dies" and drops off the sidebar — once every todo in it is checked.
+interface Plan {
+  id: string;
+  name: string; // what the plan calls itself: the plan-page <h1> and the pill label
+  order: number; // fractional sort key among plans, same scheme as a node's position
+  archived: boolean; // true once all its todos are checked; hidden from the plan-box
+}
+
+// An edit travels as a mutation, never a whole-document rewrite. Two entities take
+// mutations now — todo-nodes and plans — each with the same three verbs (create, edit,
+// delete), kept as distinct ops so one discriminated union covers both. A node op carries
+// Todo fields; a plan op carries Plan fields. The DO applies whichever it recognises and
+// ignores the rest.
+type Mutation =
+  | CreateMutation
+  | EditMutation
+  | DeleteMutation
+  | CreatePlanMutation
+  | EditPlanMutation
+  | DeletePlanMutation;
 
 interface CreateMutation extends Todo {
   op: "create";
 }
 
 // Patch the named fields of an existing node, leave the rest alone. Carries
-// keyboardText when you type, checked when you click a box, and parentID +
-// position together when you indent or outdent.
+// keyboardText when you type, checked when you click a box, parentID + position
+// together when you indent or outdent, and planID when a todo moves plan.
 interface EditMutation extends Partial<Omit<Todo, "id">> {
   op: "edit";
   id: string;
@@ -41,6 +56,21 @@ interface EditMutation extends Partial<Omit<Todo, "id">> {
 
 interface DeleteMutation {
   op: "delete";
+  id: string;
+}
+
+interface CreatePlanMutation extends Plan {
+  op: "create-plan";
+}
+
+// Patch a plan's name (an h1 rename), its order (a reorder), or its archived flag.
+interface EditPlanMutation extends Partial<Omit<Plan, "id">> {
+  op: "edit-plan";
+  id: string;
+}
+
+interface DeletePlanMutation {
+  op: "delete-plan";
   id: string;
 }
 

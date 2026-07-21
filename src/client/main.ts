@@ -5,27 +5,21 @@
 // @cloudflare/workers-types (hence its own project, tsconfig/client.json — the two
 // global type sets collide on Response, fetch, WebSocket, …).
 //
-// Layers are kept separate: pure tree functions (tree.ts), the bucket definitions
-// (buckets.ts), and here — a data/tree mirror, a render, an isolated cursor module,
-// and a command layer that translates keystrokes into tree mutations.
+// Layers are kept separate: pure tree functions (tree.ts), the plan model + date
+// derivation (plans.ts), and here — a data/tree mirror, a render, an isolated cursor
+// module, and a command layer that translates keystrokes into tree mutations.
 
 import { lastDeploymentTimestamp } from "../../generated/last-deployment-timestamp.ts";
 import {
   between,
+  childMap,
   childrenOf,
   fullyChecked,
   project,
-  rootOf,
   siblingsOf,
   subtreeIDs,
 } from "./tree.ts";
-import {
-  bucketsFor,
-  inBucket,
-  todayLocal,
-  type Bucket,
-  type BucketKey,
-} from "./buckets.ts";
+import { effectiveDate, livePlans, todayLocal } from "./plans.ts";
 import { optparse } from "./optparse.ts";
 
 const INDENT = 28;
@@ -43,14 +37,18 @@ const MUTATIONS_URL = "/scratchpad/mutations?tab=" + tabID;
 
 const list = document.getElementById("todo-container") as HTMLElement;
 const scroll = document.getElementById("scroll") as HTMLElement;
-const bucketBox = document.getElementById("bucket-box") as HTMLElement;
+const planBox = document.getElementById("plan-box") as HTMLElement;
+const todayBox = document.getElementById("today-box") as HTMLElement;
+const planTitle = document.querySelector("#plan-page h1") as HTMLElement;
 
 // ── Data layer: client mirror of the DO ──
 let nodesById = new Map<string, Todo>();
+let plansById = new Map<string, Plan>();
 let treeRevision = 0;
 let currentLines: Line[] = []; // last viewLines() result (document order)
 let pending: { id: string; col: number } | null = null; // cursor target after a re-render
 const editTimers = new Map<string, ReturnType<typeof setTimeout>>(); // id → debounce handle
+let planNameTimer: ReturnType<typeof setTimeout> | null = null; // h1 rename debounce
 
 // The calendar day the page is currently projecting. Held rather than recomputed
 // per call so that every projection in one render agrees on what "today" is, and so a
@@ -59,11 +57,20 @@ let today = todayLocal();
 
 function loadTree() {
   return fetch("/scratchpad/tree")
-    .then((r) => r.json() as Promise<{ treeRevision: number; nodes: Todo[] }>)
+    .then(
+      (r) =>
+        r.json() as Promise<{
+          treeRevision: number;
+          nodes: Todo[];
+          plans: Plan[];
+        }>,
+    )
     .then((data) => {
       treeRevision = data.treeRevision || 0;
       nodesById = new Map();
       for (const n of data.nodes) nodesById.set(n.id, n);
+      plansById = new Map();
+      for (const p of data.plans || []) plansById.set(p.id, p);
     })
     .catch(() => {});
 }
@@ -152,7 +159,7 @@ function applyLocal(m: Mutation) {
       position: m.position,
       checked: m.checked,
       keyboardText: m.keyboardText,
-      hideUntil: m.hideUntil,
+      planID: m.planID,
     });
   } else if (m.op === "edit") {
     const cur = nodesById.get(m.id);
@@ -165,15 +172,43 @@ function applyLocal(m: Mutation) {
     if (m.keyboardText !== undefined) next.keyboardText = m.keyboardText;
     if (m.parentID !== undefined) next.parentID = m.parentID;
     if (m.position !== undefined) next.position = m.position;
-    if (m.hideUntil !== undefined) next.hideUntil = m.hideUntil;
+    if (m.planID !== undefined) next.planID = m.planID;
     nodesById.set(m.id, next);
   } else if (m.op === "delete") {
     for (const id of subtreeIDs(nodesById, m.id)) nodesById.delete(id);
+  } else if (m.op === "create-plan") {
+    plansById.set(m.id, {
+      id: m.id,
+      name: m.name,
+      order: m.order,
+      archived: m.archived,
+    });
+  } else if (m.op === "edit-plan") {
+    const cur = plansById.get(m.id);
+    if (!cur) return;
+    const next = { ...cur };
+    if (m.name !== undefined) next.name = m.name;
+    if (m.order !== undefined) next.order = m.order;
+    if (m.archived !== undefined) next.archived = m.archived;
+    plansById.set(m.id, next);
+  } else if (m.op === "delete-plan") {
+    plansById.delete(m.id);
   }
 }
 
 // ── Render ──
+// The visible text of a row at rest: its keyboardText with recognised tags stripped
+// out (optparse). A row swaps back to the raw keyboardText the moment it is focused
+// for editing, and back to this when it loses focus (see the focusin/focusout wiring).
+// The '#' guard skips the parse for the common tag-less line.
+function displayText(node: Todo): string {
+  const kt = node.keyboardText || "";
+  if (!kt.includes("#")) return kt;
+  return optparse(kt).visibleDisplayText;
+}
+
 function render() {
+  renderPlanTitle();
   currentLines = viewLines();
   list.textContent = "";
   const frag = document.createDocumentFragment();
@@ -189,7 +224,7 @@ function render() {
     btn.dataset.id = n.id;
     btn.textContent = n.checked ? "✓" : "";
     // The checkbox doubles as the drag handle — grab a todo by its box and drop it
-    // on a bucket. Deliberately NOT the row: a draggable ancestor breaks mouse text
+    // on a plan. Deliberately NOT the row: a draggable ancestor breaks mouse text
     // selection inside the child <input> in Safari and Firefox, and the caret is the
     // thing this editor is built around. The button is not a text field, so it can
     // carry the drag with nothing at stake. Click and drag coexist natively — a
@@ -199,11 +234,12 @@ function render() {
     // A textarea, not an <input>: a todo's text wraps onto as many lines as it needs
     // rather than scrolling out of sight. Enter is still intercepted to make a new todo
     // (see the keydown handler), so the text itself never carries a newline — the extra
-    // rows are pure soft-wrap. rows=1 is the floor; autosize() grows it to fit.
+    // rows are pure soft-wrap. rows=1 is the floor; autosize() grows it to fit. At rest
+    // it shows displayText (tags stripped); focusin swaps in the raw keyboardText.
     const input = document.createElement("textarea");
     input.dataset.id = n.id;
     input.rows = 1;
-    input.value = n.keyboardText || "";
+    input.value = displayText(n);
     input.placeholder = "Todo";
 
     row.appendChild(btn);
@@ -215,7 +251,8 @@ function render() {
   for (const ta of list.querySelectorAll<HTMLTextAreaElement>("textarea[data-id]")) {
     autosize(ta);
   }
-  renderBuckets();
+  renderPlans();
+  renderToday();
   applyPending();
 }
 
@@ -226,101 +263,111 @@ function autosize(ta: HTMLTextAreaElement) {
   ta.style.height = ta.scrollHeight + "px";
 }
 
-// ── Buckets ──
-// Rebuilt on every render, because both halves of a bucket are derived: its label
-// is relative to today, and its count is a fact about the tree.
-let buckets: Bucket[] = bucketsFor();
+// ── Plans ──
+// The plan the page is currently showing. Per-tab, never persisted or synced — a plan-page
+// is a lens, and two tabs may look through different ones. The landing view is the first
+// live plan (see boot).
+let activePlanID = "";
 
-// The view the page is currently showing. Per-tab, never persisted or synced — a
-// bucket is a lens, not a fact about the document, and two tabs may look through
-// different ones. Tracked by key, not id, so it survives the sidebar being rebuilt
-// (a midnight turnover, a re-render): "Tomorrow" is a different date next week but the
-// same key. The landing view is Unbucketed — the capture inbox.
-let activeKey: BucketKey = "unbucketed";
-
-// The active bucket resolved against the current sidebar. Falls back to Unbucketed if
-// the key ever names a bucket that no longer exists (it always does today). Unbucketed
-// is no longer buckets[0] — it sits at the foot now — so the fallback names it directly.
-function activeBucket(): Bucket {
-  return buckets.find((b) => b.key === activeKey)
-    ?? buckets.find((b) => b.key === "unbucketed")!;
+// The active plan resolved against the current set, falling back to the first live plan if
+// the id ever names one that no longer exists (e.g. the active plan was just archived).
+function activePlan(): Plan | null {
+  return plansById.get(activePlanID) ?? livePlans(plansById)[0] ?? null;
 }
 
-// The lines of the active view: this bucket's trees, in document order, minus the
-// fully-checked ones (finishing every box in a tree retires it from every view).
+// The lines of the active plan-page: every tree whose root belongs to this plan, in
+// document order. Checked todos are NOT filtered out — they stay on the page, struck
+// through, until the whole plan is checked off and archived.
 function viewLines(): Line[] {
-  const b = activeBucket();
-  return project(
-    nodesById,
-    (n, kids) => !fullyChecked(nodesById, n, kids) && inBucket(n, b, today),
-  );
+  const p = activePlan();
+  if (!p) return [];
+  return project(nodesById, (n) => (n.planID ?? null) === p.id);
 }
 
-// Switch the active view. A no-op if you click the bucket you are already in.
-function setActiveBucket(key: BucketKey) {
-  if (key === activeKey) return;
-  activeKey = key;
-  seedActiveIfEmpty(); // an empty view is a dead end — nothing to type into
+// Switch the plan-page. A no-op if you click the plan you are already in.
+function setActivePlan(id: string) {
+  if (id === activePlanID) return;
+  activePlanID = id;
+  seedActiveIfEmpty(); // an empty plan is a dead end — nothing to type into
   render();
 }
 
-function renderBuckets() {
-  const active = activeBucket();
-  bucketBox.textContent = "";
+// The active plan's name in the editable <h1>. Skipped while the h1 itself has focus, so a
+// re-render triggered by anything else cannot yank the text out from under the caret.
+function renderPlanTitle() {
+  if (document.activeElement === planTitle) return;
+  planTitle.textContent = activePlan()?.name ?? "";
+}
+
+function renderPlans() {
+  const active = activePlan();
+  planBox.textContent = "";
   const frag = document.createDocumentFragment();
-  for (const b of buckets) {
+  for (const p of livePlans(plansById)) {
     const el = document.createElement("div");
-    // The active bucket carries .bucket-active so the sidebar shows which view you are
-    // in. Three hairlines group the ladder: the near-term views (Today, Tonight,
-    // Tomorrow), the further dated days, the dateless planning buckets (Vibe Coding,
-    // Upcoming, Someday), and Unbucketed alone at the foot — a rule under Tomorrow, over
-    // Vibe Coding, and over Unbucketed.
-    let cls = "pill bucket";
-    if (b.key === active.key) cls += " bucket-active";
-    if (b.key === "day-1") cls += " bucket-rule-below";
-    if (b.key === "vibe-coding" || b.key === "unbucketed") cls += " bucket-rule-above";
-    el.className = cls;
-    el.id = b.id;
-    el.dataset.key = b.key;
-    // The drop target's hideUntil: a date, a sentinel, or empty for Unbucketed (which
-    // hands a dropped todo a null hideUntil, tipping it back out of every dated view).
-    el.dataset.hideUntil = b.hideUntil ?? "";
+    // The active plan carries .plan-active so the sidebar shows which page you are on.
+    el.className = active && p.id === active.id ? "pill plan plan-active" : "pill plan";
+    el.dataset.id = p.id;
 
     const label = document.createElement("span");
     label.className = "pill-text-primary";
-    label.textContent = b.label;
+    label.textContent = p.name || "Untitled";
 
-    // The secondary line is what makes the bucket a plan rather than a hole to drop
-    // things into: how many trees are waiting in it, and how much of next Wednesday they
-    // have already spent (see bucketSecondary — "3x (2:30)").
+    // Secondary text is the plan's uncheckedTodoCount — "3x" for three unchecked todos,
+    // nothing at all when the plan is empty or fully checked (see NOMENCLATURE, plans).
     const count = document.createElement("span");
     count.className = "pill-text-secondary";
-    count.textContent = bucketSecondary(b);
+    const n = uncheckedCount(p);
+    count.textContent = n ? n + "x" : "";
 
     el.appendChild(label);
     el.appendChild(count);
     frag.appendChild(el);
   }
-  bucketBox.appendChild(frag);
+  // The one control in the plan-box: make a new plan and jump to it to name it.
+  const add = document.createElement("div");
+  add.className = "pill add-plan";
+  add.textContent = "+ add plan";
+  frag.appendChild(add);
+
+  planBox.appendChild(frag);
 }
 
-// How many todo-trees are waiting in a bucket. Top-level nodes only — a bucketed
-// todo takes its subtree with it, and counting the descendants too would report a
-// three-line tree as three separate things to do. A blank placeholder line (an empty
-// view seeds one so it can be typed into) is not work, so it is not counted.
-function countIn(b: Bucket): number {
+// How many unchecked todos are waiting in a plan. Every unchecked, non-blank node in the
+// plan's trees counts — a todo is a line, per NOMENCLATURE ("3x for 3 todos"). A blank
+// placeholder line (an empty plan seeds one so it can be typed into) is not work.
+function uncheckedCount(p: Plan): number {
   let n = 0;
-  for (const node of childrenOf(nodesById, null)) {
-    if (!inBucket(node, b, today)) continue;
-    if (fullyChecked(nodesById, node)) continue;
-    if (isBlankLeaf(node)) continue;
-    n++;
+  for (const root of childrenOf(nodesById, null)) {
+    if ((root.planID ?? null) !== p.id) continue;
+    for (const id of subtreeIDs(nodesById, root.id)) {
+      const node = nodesById.get(id);
+      if (!node || node.checked) continue;
+      if (isBlankLeaf(node)) continue;
+      n++;
+    }
   }
   return n;
 }
 
-// A lone empty line: no text, unchecked, no children. The blank a view seeds so it is
-// not a dead end is one of these, and it should not inflate a bucket's count.
+// A plan is complete — every one of its (non-blank) todos is checked — and so ready to be
+// archived. An all-blank or empty plan is not complete: there is no work in it to finish.
+function planComplete(p: Plan): boolean {
+  let hasReal = false;
+  for (const root of childrenOf(nodesById, null)) {
+    if ((root.planID ?? null) !== p.id) continue;
+    for (const id of subtreeIDs(nodesById, root.id)) {
+      const node = nodesById.get(id);
+      if (!node || isBlankLeaf(node)) continue;
+      hasReal = true;
+      if (!node.checked) return false;
+    }
+  }
+  return hasReal;
+}
+
+// A lone empty line: no text, unchecked, no children. The blank a plan seeds so it is not a
+// dead end is one of these, and it should not inflate a count or complete a plan.
 function isBlankLeaf(node: Todo): boolean {
   return (
     !node.checked &&
@@ -329,61 +376,154 @@ function isBlankLeaf(node: Todo): boolean {
   );
 }
 
-// The bucket pill's amber secondary line. Time wins: if this bucket's unchecked todos carry
-// any cumulative time-est, that is shown alone as "h:mm" (e.g. "2:30"). Otherwise it falls
-// back to the unchecked-tree count as "Nx" (the "x" reads "times"). An empty bucket — no
-// time and no count — yields the empty string, so no secondary text renders at all.
-function bucketSecondary(b: Bucket): string {
-  const mins = cumulativeTimeEstUnchecked(b);
-  if (mins > 0) return formatTimeEst(mins);
-  const n = countIn(b);
-  return n ? n + "x" : "";
+// ── Today ──
+// Every unchecked todo whose effective date (its own, or one inherited from an ancestor)
+// is today, in document order across every plan. This is the read-only right-panel view —
+// you look at what is due, but you plan only on a plan-page.
+function todayTodos(): Todo[] {
+  const out: Todo[] = [];
+  const kids = childMap(nodesById);
+  (function dfs(parentID: string | null) {
+    for (const n of kids.get(parentID) || []) {
+      if (!n.checked && !isBlankLeaf(n) && effectiveDate(nodesById, n) === today) {
+        out.push(n);
+      }
+      dfs(n.id);
+    }
+  })(null);
+  return out;
 }
 
-// The cumulative time-est, in minutes, of every unchecked todo whose tree lives in bucket
-// b. Bucket membership is a root property, so we start from the roots that belong to b and
-// walk each subtree; a checked node contributes nothing, so a fully-checked (retired) tree
-// naturally sums to zero. Each node's time-est is re-derived from its keyboardText by
-// optparse — nothing is stored. The keyboardText.includes("#") guard skips the parse for
-// the common tag-less line.
-function cumulativeTimeEstUnchecked(b: Bucket): number {
-  let total = 0;
-  for (const root of childrenOf(nodesById, null)) {
-    if (!inBucket(root, b, today)) continue;
-    for (const id of subtreeIDs(nodesById, root.id)) {
-      const node = nodesById.get(id);
-      if (!node || node.checked) continue;
-      const kt = node.keyboardText || "";
-      if (!kt.includes("#")) continue;
-      const mins = optparse(kt).getKey["time-est"];
-      if (mins) total += mins;
+function renderToday() {
+  todayBox.textContent = "";
+  const frag = document.createDocumentFragment();
+
+  const head = document.createElement("div");
+  head.className = "today-head";
+  head.textContent = "Today";
+  frag.appendChild(head);
+
+  const todos = todayTodos();
+  if (!todos.length) {
+    const empty = document.createElement("div");
+    empty.className = "today-empty";
+    empty.textContent = "Nothing due";
+    frag.appendChild(empty);
+  } else {
+    for (const n of todos) {
+      const el = document.createElement("div");
+      el.className = "today-todo";
+      el.textContent = displayText(n) || "Todo";
+      frag.appendChild(el);
     }
   }
-  return total;
+  todayBox.appendChild(frag);
 }
 
-// Integer minutes → "h:mm": hours un-padded, minutes always two digits. 150 → "2:30",
-// 65 → "1:05", 45 → "0:45", 600 → "10:00". Per NOMENCLATURE (cumulativeTimeEstUnchecked):
-// purely hh:mm, with no zero-padding of the hours.
-function formatTimeEst(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return h + ":" + String(m).padStart(2, "0");
+// ── Plan mutations from the sidebar ──
+// Make a new plan, jump to it, and drop the caret into its <h1> so it can be named
+// straight away (Notion-style). It starts empty and seeds a blank todo so the page below
+// the title is not a dead end.
+function addPlan() {
+  const id = crypto.randomUUID();
+  const orders = livePlans(plansById).map((p) => p.order);
+  const order = (orders.length ? Math.max(...orders) : 0) + 1;
+  commitLocal([{ op: "create-plan", id, name: "", order, archived: false }]);
+  activePlanID = id;
+  seedActiveIfEmpty();
+  render();
+  focusPlanTitle();
 }
 
-// The deletes that clear a bucket's leftover fake empty todo once real work lands in it.
-// Visiting an empty bucket persists a blank-seed line so the view is never a dead end (see
-// seedActiveIfEmpty), but that line outlives the visit; drop a real todo into the same
-// bucket later and the blank is left sitting above it. Returns a delete for every root-level
-// blank-seed still parked in `hideUntil`'s bucket — skipping `keepID` (the todo being
-// dropped in) and any seed since typed into (isBlankLeaf excludes those). The blank-seed id
-// prefix is what marks a line as the bucket's own placeholder rather than an empty line the
-// user deliberately made and left there.
-function seededBlankDeletions(hideUntil: string | null, keepID: string): Mutation[] {
+// Archive a plan — it "dies" and leaves the sidebar — then move the page to another live
+// plan, making a fresh one if that was the last plan standing.
+function archivePlan(id: string) {
+  commitLocal([{ op: "edit-plan", id, archived: true }]);
+  const next = livePlans(plansById).find((p) => p.id !== id);
+  if (next) {
+    activePlanID = next.id;
+  } else {
+    ensureAPlan(); // no plans left — start a blank one
+  }
+  seedActiveIfEmpty();
+  render();
+}
+
+// Rename the active plan from its <h1>. Debounced like a todo edit, so a burst of typing is
+// one write. The pill mirrors the name live; the h1 is the source of truth while focused.
+function onPlanRename() {
+  const p = activePlan();
+  if (!p) return;
+  const name = (planTitle.textContent || "").replace(/\n/g, " ").trim();
+  plansById.set(p.id, { ...p, name });
+  renderPlans();
+  if (planNameTimer) clearTimeout(planNameTimer);
+  planNameTimer = setTimeout(() => {
+    postMutations([{ op: "edit-plan", id: p.id, name }]);
+    planNameTimer = null;
+  }, DEBOUNCE_MS);
+}
+
+function focusPlanTitle() {
+  planTitle.focus();
+  // Caret to the end of whatever is already there.
+  const sel = window.getSelection();
+  if (sel) {
+    const range = document.createRange();
+    range.selectNodeContents(planTitle);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+}
+
+// ── One-time migration off the old bucket model ──
+// Todos created before plans existed carry a `hideUntil` and no `planID`, so in the plan
+// world they belong to no plan and would be invisible. On the first load that finds nodes
+// but no plans, sweep every ACTIVE (not fully-checked) tree into a plan called "Mike Todo";
+// fully-checked trees — already retired and out of sight under the old model — are left with
+// a null planID, so they stay gone. Guarded on "nodes exist, no plans", so it runs exactly
+// once; the plan id is fixed so two tabs migrating at the same moment collapse to one plan.
+// Safe to delete once it has run against the live scratchpad.
+const MIKE_TODO = "mike-todo";
+function migrateLegacyIfNeeded() {
+  if (plansById.size > 0) return;
+  const roots = childrenOf(nodesById, null);
+  if (!roots.length) return;
+  const batch: Mutation[] = [
+    { op: "create-plan", id: MIKE_TODO, name: "Mike Todo", order: 1, archived: false },
+  ];
+  for (const root of roots) {
+    if (fullyChecked(nodesById, root)) continue; // leave retired trees out of any plan
+    batch.push({ op: "edit", id: root.id, planID: MIKE_TODO });
+  }
+  commitLocal(batch);
+}
+
+// If no plan exists yet (a fresh scratchpad, or the last plan just archived), make one so
+// there is always a page to land on.
+function ensureAPlan() {
+  if (livePlans(plansById).length) {
+    activePlanID = activePlan()?.id ?? activePlanID;
+    return;
+  }
+  const id = crypto.randomUUID();
+  commitLocal([{ op: "create-plan", id, name: "", order: 1, archived: false }]);
+  activePlanID = id;
+}
+
+// ── Drag a todo onto a plan ──
+// The deletes that clear a plan's leftover fake empty todo once real work lands in it.
+// Visiting an empty plan persists a blank-seed line so the page is never a dead end (see
+// seedActiveIfEmpty), but that line outlives the visit; drop a real todo into the same plan
+// later and the blank is left sitting above it. Returns a delete for every root-level
+// blank-seed still parked in `planID`'s plan — skipping `keepID` (the todo being dropped in)
+// and any seed since typed into (isBlankLeaf excludes those).
+function seededBlankDeletions(planID: string, keepID: string): Mutation[] {
   const out: Mutation[] = [];
   for (const node of childrenOf(nodesById, null)) {
     if (node.id === keepID) continue;
-    if ((node.hideUntil ?? null) !== hideUntil) continue;
+    if ((node.planID ?? null) !== planID) continue;
     if (!node.id.startsWith("blank-seed-")) continue;
     if (!isBlankLeaf(node)) continue;
     out.push({ op: "delete", id: node.id });
@@ -391,62 +531,68 @@ function seededBlankDeletions(hideUntil: string | null, keepID: string): Mutatio
   return out;
 }
 
-// Drop a todo into a bucket. The node keeps everything else — its text, its children,
-// its place in the tree — and simply changes which view it belongs to (see inBucket()).
-// Dropping onto Unbucketed passes a null hideUntil, which is how a todo comes back out
-// of a dated bucket now that clicking navigates rather than empties. Real work arriving in
-// the bucket clears the fake empty todo it may have been seeded with, in the same batch.
-function bucketTodo(id: string, hideUntil: string | null) {
+// Drop a todo into a plan. The node keeps everything else — its text, its children, its
+// place in the tree — and simply changes which plan it belongs to. Real work arriving in
+// the plan clears the fake empty todo it may have been seeded with, in the same batch.
+function movePlan(id: string, planID: string) {
   const node = nodesById.get(id);
   if (!node) return;
   commitLocal([
-    { op: "edit", id: id, hideUntil: hideUntil },
-    ...seededBlankDeletions(hideUntil, id),
+    { op: "edit", id: id, planID: planID },
+    ...seededBlankDeletions(planID, id),
   ]);
   seedActiveIfEmpty(); // moving the last visible tree out would otherwise leave a dead page
   render();
 }
 
-bucketBox.addEventListener("dragover", (e) => {
-  const el = (e.target as HTMLElement).closest<HTMLElement>(".bucket");
+planBox.addEventListener("dragover", (e) => {
+  const el = (e.target as HTMLElement).closest<HTMLElement>(".plan");
   if (!el) return;
   e.preventDefault(); // the default is "reject the drop"; this is what permits it
   e.dataTransfer!.dropEffect = "move";
-  el.classList.add("bucket-over");
+  el.classList.add("plan-over");
 });
-bucketBox.addEventListener("dragleave", (e) => {
-  const el = (e.target as HTMLElement).closest<HTMLElement>(".bucket");
-  if (el) el.classList.remove("bucket-over");
+planBox.addEventListener("dragleave", (e) => {
+  const el = (e.target as HTMLElement).closest<HTMLElement>(".plan");
+  if (el) el.classList.remove("plan-over");
 });
-bucketBox.addEventListener("drop", (e) => {
-  const el = (e.target as HTMLElement).closest<HTMLElement>(".bucket");
-  if (!el) return;
+planBox.addEventListener("drop", (e) => {
+  const el = (e.target as HTMLElement).closest<HTMLElement>(".plan");
+  if (!el || !el.dataset.id) return;
   e.preventDefault();
-  el.classList.remove("bucket-over");
+  el.classList.remove("plan-over");
   const id = e.dataTransfer!.getData("text/plain");
-  // Empty dataset.hideUntil is Unbucketed's null — a real destination, not a missing
-  // one — so the drop is gated on the dragged id alone.
-  if (id) bucketTodo(id, el.dataset.hideUntil || null);
+  if (id) movePlan(id, el.dataset.id);
 });
-// Click a bucket to look through it: it becomes the active view and #todo-container
-// shows only its todos. This is the whole point of a bucket now — a lens you switch to,
-// not a holding pen you tip back out (dropping onto Unbucketed does the tipping-out).
-bucketBox.addEventListener("click", (e) => {
-  const el = (e.target as HTMLElement).closest<HTMLElement>(".bucket");
-  if (!el || !el.dataset.key) return;
-  setActiveBucket(el.dataset.key as BucketKey);
+// Click a plan to open its page; click "+ add plan" to make one.
+planBox.addEventListener("click", (e) => {
+  const t = e.target as HTMLElement;
+  if (t.closest(".add-plan")) {
+    addPlan();
+    return;
+  }
+  const el = t.closest<HTMLElement>(".plan");
+  if (el && el.dataset.id) setActivePlan(el.dataset.id);
 });
 
-// A tab left open across midnight is projecting yesterday: the buckets still say
-// "Tomorrow" for a day that has arrived, and the todos due this morning are still
-// hidden. Notice the turnover and re-project. A minute's granularity is plenty —
-// nothing here is to the second — and the check is a string compare.
+// ── Editable plan title (<h1>) ──
+planTitle.addEventListener("input", onPlanRename);
+// Enter commits the name rather than dropping a newline into the heading.
+planTitle.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    planTitle.blur();
+  }
+});
+
+// A tab left open across midnight is projecting yesterday: the today-box still shows
+// yesterday's due todos. Notice the turnover and re-project. A minute's granularity is
+// plenty — nothing here is to the second — and the check is a string compare.
 function watchForMidnight() {
   setInterval(() => {
     const now = todayLocal();
     if (now === today) return;
     today = now;
-    buckets = bucketsFor();
     render();
   }, 60_000);
 }
@@ -460,7 +606,7 @@ function applyPending() {
 function focusLine(id: string, col: number | null) {
   const el = list.querySelector<HTMLTextAreaElement>('textarea[data-id="' + id + '"]');
   if (!el) return;
-  el.focus();
+  el.focus(); // focusin swaps in the raw keyboardText before we place the caret
   const c = col == null ? el.value.length : col;
   try {
     el.setSelectionRange(c, c);
@@ -475,8 +621,9 @@ function measureCtx() {
   ctx.font = FONT;
   return ctx;
 }
-// The caret's visual x-position: the line's indent plus the width of the text
-// sitting to the left of the caret (canvas text metrics).
+// The caret's visual x-position: the line's indent plus the width of the text sitting to
+// the left of the caret. A focused row shows the raw keyboardText, so the caret maths are
+// against keyboardText.
 function caretX(line: Line, col: number) {
   const text = nodesById.get(line.node.id)?.keyboardText || "";
   return line.depth * INDENT + measureCtx().measureText(text.slice(0, col)).width;
@@ -510,7 +657,8 @@ function blankFocus(e: MouseEvent) {
   const t = e.target as HTMLElement;
   desiredX = null; // a mousedown places the caret by hand, ending any arrow run
   if (t.tagName === "TEXTAREA" || t.tagName === "BUTTON") return;
-  if (t.closest("#mono-sidebar")) return; // the sidebar's own clicks are not the page's
+  if (t.closest(".sidebar")) return; // a sidebar's own clicks are not the page's
+  if (t.closest("#plan-page h1")) return; // nor the title's
   const inputs = list.querySelectorAll<HTMLTextAreaElement>("textarea[data-id]");
   const last = inputs[inputs.length - 1];
   if (last) {
@@ -534,7 +682,9 @@ function connectSocket() {
   );
   socket.addEventListener("open", () => {
     // A *re*connect means we were deaf for a while, so the mirror cannot be trusted:
-    // refetch the whole tree rather than trying to replay what we missed.
+    // refetch the whole tree rather than trying to replay what we missed. The FIRST open
+    // deliberately does not refetch — loadTree() just ran, and a blind refetch here would
+    // discard optimistic local edits typed before this socket finished connecting.
     if (hasConnected) refetch();
     hasConnected = true;
   });
@@ -554,6 +704,8 @@ function connectSocket() {
 
 function refetch() {
   loadTree().then(() => {
+    migrateLegacyIfNeeded();
+    ensureAPlan();
     seedActiveIfEmpty();
     repositionCursorAfterRender();
   });
@@ -571,7 +723,7 @@ function applyRemote(batch: Mutation[]) {
     // Another device's text must never land in a line we have unsent text for — it
     // would overwrite the word under the user's fingers. A live debounce timer is
     // exactly that condition. Hold the text back and let the rest of the mutation
-    // (checked, treePlacement, hideUntil) through.
+    // (checked, treePlacement, planID) through.
     if (m.op === "edit" && m.keyboardText !== undefined && editTimers.has(m.id)) {
       const { keyboardText, ...withoutText } = m;
       applyLocal(withoutText);
@@ -599,7 +751,7 @@ function lineOf(id: string) {
 
 function onInput(node: Todo, input: HTMLTextAreaElement) {
   autosize(input); // a keystroke may have added or removed a wrapped row
-  const val = input.value;
+  const val = input.value; // a focused row holds the RAW keyboardText
   const cur = nodesById.get(node.id);
   if (cur) nodesById.set(node.id, { ...cur, keyboardText: val });
   clearTimeout(editTimers.get(node.id));
@@ -612,10 +764,11 @@ function onInput(node: Todo, input: HTMLTextAreaElement) {
       editTimers.delete(node.id);
     }, DEBOUNCE_MS),
   );
-  // A '#'-tag may have just changed this bucket's cumulative time-est, so redraw the
-  // bucket-box. It is a different subtree from #todo-container, so this never touches the
+  // A '#'-tag may have just changed this row's date or the plan's count, so redraw the
+  // sidebars. They are separate subtrees from #todo-container, so this never touches the
   // textarea the caret lives in — the no-re-render-on-type invariant is preserved.
-  renderBuckets();
+  renderPlans();
+  renderToday();
 }
 
 function onToggle(btn: HTMLButtonElement) {
@@ -625,29 +778,28 @@ function onToggle(btn: HTMLButtonElement) {
   if (!n) return;
   const val = !n.checked;
   commitLocal([{ op: "edit", id: id, checked: val }]);
-  // Checking the last open box completes the whole top-level tree, which then drops
-  // out of every view (see project()) — re-render so it disappears. Any other toggle
-  // updates the one .todo-checked in place, leaving the caret untouched. Either way
-  // the bucket counts may have moved, so they are redrawn.
-  const root = rootOf(nodesById, id);
-  if (val && root && fullyChecked(nodesById, root)) {
-    seedActiveIfEmpty(); // if that was the last visible tree, drop in a blank line
-    render();
-    return;
-  }
+  // Checked todos stay on the page (struck through), so the row is updated in place rather
+  // than removed. The sidebars change, though: the plan's count drops and a checked-today
+  // todo leaves the today-box.
   btn.className = val ? "todo-checked checked" : "todo-checked";
   btn.textContent = val ? "✓" : "";
   const row = btn.closest<HTMLElement>(".todo-row");
   if (row) row.dataset.checked = val ? "1" : "0";
-  renderBuckets();
+  renderPlans();
+  renderToday();
+  // Checking the last open box completes the plan — it dies and the page moves on.
+  if (val) {
+    const p = activePlan();
+    if (p && planComplete(p)) archivePlan(p.id);
+  }
 }
 
-// The hideUntil a newly-created node should carry. A new top-level node joins the view
-// you are looking at, so it takes the active bucket's hideUntil — otherwise a line typed
-// in the Friday view would vanish the instant it was created. A child's hideUntil is
-// never read (bucket membership is a root property), so it stays null.
-function hideUntilFor(parentID: string | null): string | null {
-  return parentID == null ? activeBucket().hideUntil : null;
+// The planID a newly-created node should carry. A new top-level node joins the plan you are
+// looking at, so it takes the active plan's id — otherwise a line typed here would belong to
+// no plan and vanish. A child's planID is never read (membership is a root property), so it
+// stays null.
+function planIDFor(parentID: string | null): string | null {
+  return parentID == null ? (activePlan()?.id ?? null) : null;
 }
 
 function onEnter(line: Line, input: HTMLTextAreaElement) {
@@ -667,7 +819,7 @@ function onEnter(line: Line, input: HTMLTextAreaElement) {
         position: between(lo, node.position),
         checked: false,
         keyboardText: "",
-        hideUntil: hideUntilFor(node.parentID),
+        planID: planIDFor(node.parentID),
       },
     ]);
     pending = { id: node.id, col: 0 }; // caret stays on current line
@@ -683,7 +835,7 @@ function onEnter(line: Line, input: HTMLTextAreaElement) {
           position: between(null, kids[0].position),
           checked: false,
           keyboardText: "",
-          hideUntil: hideUntilFor(node.id),
+          planID: planIDFor(node.id),
         },
       ]);
     } else {
@@ -698,7 +850,7 @@ function onEnter(line: Line, input: HTMLTextAreaElement) {
           position: between(node.position, hi),
           checked: false,
           keyboardText: "",
-          hideUntil: hideUntilFor(node.parentID),
+          planID: planIDFor(node.parentID),
         },
       ]);
     }
@@ -766,17 +918,17 @@ function onOutdent(line: Line, col: number) {
   const gsibs = siblingsOf(nodesById, parent);
   const pidx = gsibs.findIndex((s) => s.id === parent.id);
   const hi = pidx + 1 < gsibs.length ? gsibs[pidx + 1].position : null;
-  // Outdenting to the root level makes this node a tree of its own. It must join the
-  // view you are looking at — otherwise a child outdented in the Friday view would land
-  // in Unbucketed (a null hideUntil) and vanish from under the caret. Deeper outdents
-  // (grandID is still a node) leave hideUntil alone; a non-root's is never read.
+  // Outdenting to the root level makes this node a tree of its own. It must join the plan
+  // you are looking at — otherwise a child outdented here would land with a null planID and
+  // vanish. Deeper outdents (grandID is still a node) leave planID alone; a non-root's is
+  // never read.
   const patch: EditMutation = {
     op: "edit",
     id: node.id,
     parentID: grandID,
     position: between(parent.position, hi),
   };
-  if (grandID == null) patch.hideUntil = activeBucket().hideUntil;
+  if (grandID == null) patch.planID = activePlan()?.id ?? null;
   commitLocal([patch]);
   pending = { id: node.id, col: col };
   render();
@@ -796,6 +948,30 @@ function onArrow(dir: "up" | "down", line: Line, input: HTMLTextAreaElement) {
 }
 
 // ── Event wiring (delegated, so re-renders don't re-attach) ──
+// A row at rest shows displayText (tags stripped); focusing it reveals the raw keyboardText
+// to edit, and blurring hides the tags again. focusin/focusout bubble (focus/blur do not),
+// so one delegated pair covers every row.
+list.addEventListener("focusin", (e) => {
+  const t = e.target as HTMLTextAreaElement;
+  if (t.tagName !== "TEXTAREA" || !t.dataset.id) return;
+  const n = nodesById.get(t.dataset.id);
+  if (!n) return;
+  const raw = n.keyboardText || "";
+  if (t.value !== raw) {
+    t.value = raw;
+    autosize(t);
+  }
+});
+list.addEventListener("focusout", (e) => {
+  const t = e.target as HTMLTextAreaElement;
+  if (t.tagName !== "TEXTAREA" || !t.dataset.id) return;
+  const n = nodesById.get(t.dataset.id);
+  const vis = n ? displayText(n) : "";
+  if (t.value !== vis) {
+    t.value = vis;
+    autosize(t);
+  }
+});
 list.addEventListener("input", (e) => {
   const t = e.target as HTMLTextAreaElement;
   if (t.dataset && t.dataset.id && t.tagName === "TEXTAREA") {
@@ -836,7 +1012,7 @@ list.addEventListener("click", (e) => {
   const btn = t.closest ? t.closest<HTMLButtonElement>("button[data-id]") : null;
   if (btn) onToggle(btn);
 });
-// The drag carries only the node id; the bucket does the rest. A subtree travels
+// The drag carries only the node id; the plan does the rest. A subtree travels
 // with its root, so there is nothing else to say.
 list.addEventListener("dragstart", (e) => {
   const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-id]");
@@ -877,39 +1053,40 @@ scroll.addEventListener("mousedown", blankFocus);
 
 document.title = "Scratchpad";
 
-// ── Auto-seed: keep the active view from becoming a dead end ──
-// With nothing visible in the current view (a fresh scratchpad, every tree in it checked
-// off, its last tree bucketed elsewhere, or an empty bucket you just navigated to) no
-// row renders, and since every keystroke handler is delegated off a textarea[data-id]
-// target, there would be nothing to type into. So drop one blank todo into the active
-// view. Caller re-renders.
+// ── Auto-seed: keep the active plan-page from becoming a dead end ──
+// With nothing visible in the current plan (a fresh plan, every tree in it just moved out)
+// no row renders, and since every keystroke handler is delegated off a textarea[data-id]
+// target, there would be nothing to type into. So drop one blank todo into the active plan.
+// Caller re-renders.
 function seedActiveIfEmpty() {
   if (viewLines().length > 0) return;
-  const b = activeBucket();
+  const p = activePlan();
+  if (!p) return;
   const roots = childrenOf(nodesById, null);
   const lastPos = roots.length ? roots[roots.length - 1].position : null;
   commitLocal([
     {
       op: "create",
-      // Deliberately NOT a random id, unlike every other create. Seeding is a
-      // *derived* action — "this view is empty, so drop in a blank line" — and two
-      // tabs can reach that conclusion at the same moment. Random ids would give you
-      // two blank lines. An id derived from the revision AND the view keeps two tabs on
-      // the same empty view collapsing to one create, while two tabs on different empty
-      // views each get their own blank.
-      id: "blank-seed-" + treeRevision + "-" + b.key,
+      // Deliberately NOT a random id, unlike every other create. Seeding is a *derived*
+      // action — "this plan is empty, so drop in a blank line" — and two tabs can reach
+      // that conclusion at the same moment. Random ids would give two blank lines. An id
+      // derived from the revision AND the plan keeps two tabs on the same empty plan
+      // collapsing to one create.
+      id: "blank-seed-" + treeRevision + "-" + p.id,
       parentID: null,
       position: between(lastPos, null),
       checked: false,
       keyboardText: "",
-      // The blank belongs to the view it was seeded into, so it is there to type in.
-      hideUntil: b.hideUntil,
+      planID: p.id,
     },
   ]);
 }
 
 // ── Boot ──
 loadTree().then(() => {
+  migrateLegacyIfNeeded(); // one-time: sweep pre-plans todos into "Mike Todo"
+  ensureAPlan(); // a fresh scratchpad has no plans — start one
+  activePlanID = activePlan()?.id ?? activePlanID;
   seedActiveIfEmpty();
   render();
   const inputs = list.querySelectorAll<HTMLTextAreaElement>("textarea[data-id]");

@@ -2,9 +2,10 @@
 //
 // State model: one storage entry per node under `element:<id>`, holding the
 // stored fields of a todo-line-item ({ id, parentID, position, checked,
-// keyboardText }). `documentPosition` and `depthLevel` are NOT stored — the
-// client computes them by sorting siblings on `position` and walking the tree.
-// A separate `treeRevision` counter is bumped on every write batch.
+// keyboardText, planID }), and one entry per plan under `plan:<id>` ({ id, name,
+// order, archived }). `documentPosition`, `depthLevel` and a todo's `date` are NOT
+// stored — the client computes/derives them. A separate `treeRevision` counter is
+// bumped on every write batch.
 //
 // Edits arrive as a batch of `mutation`s (POST /scratchpad/mutations); the DO
 // applies them and returns the new `treeRevision`. The DO's input gate
@@ -12,6 +13,7 @@
 // so no explicit transaction is needed.
 
 const ELEMENT_PREFIX = "element:";
+const PLAN_PREFIX = "plan:";
 const REVISION_KEY = "treeRevision";
 
 // Fields an `edit` mutation is allowed to overwrite on an existing node.
@@ -20,13 +22,22 @@ const MUTABLE_FIELDS = [
   "keyboardText",
   "parentID",
   "position",
-  "hideUntil",
+  "planID",
 ] as const;
+
+// Fields an `edit-plan` mutation is allowed to overwrite on an existing plan.
+const PLAN_MUTABLE_FIELDS = ["name", "order", "archived"] as const;
 
 // What actually arrives over the wire: whatever the client posted. Every field
 // is optional and unverified — this is untrusted JSON, so the code below keeps
-// its defensive defaults rather than trusting a Mutation-shaped promise.
-type IncomingMutation = Partial<Record<(typeof MUTABLE_FIELDS)[number], unknown>> & {
+// its defensive defaults rather than trusting a Mutation-shaped promise. One type
+// covers both entities; only the fields for the matched op are ever read.
+type IncomingMutation = Partial<
+  Record<
+    (typeof MUTABLE_FIELDS)[number] | (typeof PLAN_MUTABLE_FIELDS)[number],
+    unknown
+  >
+> & {
   op?: unknown;
   id?: unknown;
 };
@@ -97,11 +108,12 @@ export class TodoTree {
     }
   }
 
-  // GET /scratchpad/tree → { treeRevision, nodes: [...stored nodes] }.
+  // GET /scratchpad/tree → { treeRevision, nodes: [...stored nodes], plans: [...stored plans] }.
   async readTree(): Promise<Response> {
     const nodes = [...(await this.allNodes()).values()];
+    const plans = [...(await this.allPlans()).values()];
     const treeRevision = (await this.storage.get<number>(REVISION_KEY)) ?? 0;
-    return Response.json({ treeRevision, nodes });
+    return Response.json({ treeRevision, nodes, plans });
   }
 
   // POST /scratchpad/mutations?tab=<tabID> → apply a batch atomically, fan it out to
@@ -137,6 +149,7 @@ export class TodoTree {
 
   async applyOne(mutation: IncomingMutation): Promise<void> {
     const key = ELEMENT_PREFIX + mutation.id;
+    const planKey = PLAN_PREFIX + mutation.id;
 
     switch (mutation.op) {
       case "create": {
@@ -146,10 +159,9 @@ export class TodoTree {
           position: mutation.position,
           checked: mutation.checked ?? false,
           keyboardText: mutation.keyboardText ?? "",
-          // Nodes written before buckets existed have no hideUntil at all. That
-          // is fine and needs no migration: absent and null both read as "never
-          // bucketed" everywhere it is tested.
-          hideUntil: mutation.hideUntil ?? null,
+          // A child's planID is null and resolved by walking to its root; only a
+          // top-level todo carries a real one (see plans.ts).
+          planID: mutation.planID ?? null,
         });
         return;
       }
@@ -165,6 +177,32 @@ export class TodoTree {
       }
       case "delete": {
         await this.deleteSubtree(String(mutation.id));
+        return;
+      }
+      case "create-plan": {
+        await this.storage.put(planKey, {
+          id: mutation.id,
+          name: mutation.name ?? "",
+          order: mutation.order ?? 0,
+          archived: mutation.archived ?? false,
+        });
+        return;
+      }
+      case "edit-plan": {
+        const existing = await this.storage.get<Plan>(planKey);
+        if (!existing) return;
+        const patched: Record<string, unknown> = { ...existing };
+        for (const field of PLAN_MUTABLE_FIELDS) {
+          if (field in mutation) patched[field] = mutation[field];
+        }
+        await this.storage.put(planKey, patched);
+        return;
+      }
+      case "delete-plan": {
+        // Remove the plan record only. A plan is normally retired by archiving, not
+        // deleting; if a plan is ever hard-deleted, its todos are reassigned or
+        // deleted by the caller in the same batch, so nothing is orphaned here.
+        await this.storage.delete(planKey);
         return;
       }
       // Unknown op: ignore, so one bad entry can't poison the whole batch.
@@ -193,5 +231,10 @@ export class TodoTree {
   // the tree grows past storage.list()'s return cap, paginate with a cursor.
   allNodes(): Promise<Map<string, Todo>> {
     return this.storage.list<Todo>({ prefix: ELEMENT_PREFIX });
+  }
+
+  // All stored plans as a Map(key → plan). A handful of entries at most.
+  allPlans(): Promise<Map<string, Plan>> {
+    return this.storage.list<Plan>({ prefix: PLAN_PREFIX });
   }
 }
