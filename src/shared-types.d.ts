@@ -4,8 +4,7 @@
 
 // The stored fields of a todo-line-item — one storage entry per node, under
 // `element:<id>`. `documentPosition` and `depthLevel` are deliberately absent:
-// they are computed at render, never stored. A todo's `date` is absent too — it is
-// DERIVED from keyboardText by optparse (see optparse.ts), never stored.
+// they are computed at render, never stored.
 interface Todo {
   id: string;
   parentID: string | null;
@@ -16,6 +15,12 @@ interface Todo {
   // subtree travels with its root, so only a root's planID decides which plan its whole
   // tree lives in — a child's is null and resolved by walking to its root (rootOf).
   planID: string | null;
+  // The todo's own date, "YYYY-MM-DD", or null. Now STORED, not derived: a #date tag typed
+  // into the text is "sunk" on blur — optparse extracts it here and the tag is stripped from
+  // keyboardText for good, so it stops cluttering the line (see the focusout handler). Legacy
+  // nodes carry null and still have their tag in the text; ownDate falls back to parsing those
+  // until they are next edited and sunk.
+  date: string | null;
 }
 
 // A plan — the named container a todo lives in, and the editable page you look at it on.
@@ -27,10 +32,10 @@ interface Plan {
   name: string; // what the plan calls itself: the plan-page <h1> and the pill label
   order: number; // fractional sort key among plans, same scheme as a node's position
   archived: boolean; // true once all its todos are checked; hidden from the plan-box
-  // The local calendar day the plan was born, YYYY-MM-DD. Set once at creation and never
-  // edited (so it is absent from PLAN_MUTABLE_FIELDS) — the pill reads it back as the plan's
-  // age. Plans created before this field existed carry none; the age readout is then omitted.
-  createdAt: string;
+  // The moment the plan was born, as epoch milliseconds. Set at creation; the pill formats it
+  // into a creation time/date (a time today, "…yesterday", or "Jul 3" older — see formatCreatedAt).
+  // 0 means unknown (a plan that predates the field), and the readout is then omitted.
+  createdAt: number;
 }
 
 // An edit travels as a mutation, never a whole-document rewrite. Two entities take

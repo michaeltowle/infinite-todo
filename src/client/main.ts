@@ -19,7 +19,7 @@ import {
   siblingsOf,
   subtreeIDs,
 } from "./tree.ts";
-import { daysAlive, effectiveDate, livePlans, planOf, todayLocal } from "./plans.ts";
+import { effectiveDate, formatCreatedAt, livePlans, planOf, todayLocal } from "./plans.ts";
 import { optparse } from "./optparse.ts";
 
 const INDENT = 28;
@@ -166,6 +166,7 @@ function applyLocal(m: Mutation) {
       checked: m.checked,
       keyboardText: m.keyboardText,
       planID: m.planID,
+      date: m.date,
     });
   } else if (m.op === "edit") {
     const cur = nodesById.get(m.id);
@@ -179,6 +180,7 @@ function applyLocal(m: Mutation) {
     if (m.parentID !== undefined) next.parentID = m.parentID;
     if (m.position !== undefined) next.position = m.position;
     if (m.planID !== undefined) next.planID = m.planID;
+    if (m.date !== undefined) next.date = m.date;
     nodesById.set(m.id, next);
   } else if (m.op === "delete") {
     for (const id of subtreeIDs(nodesById, m.id)) nodesById.delete(id);
@@ -320,17 +322,18 @@ function renderPlans() {
     label.className = "pill-text-primary";
     label.textContent = p.name || "Untitled";
 
-    // Secondary text carries two facts, "·"-joined: the plan's uncheckedTodoCount — "3x" for
-    // three unchecked todos (see NOMENCLATURE, plans) — and its age, "5d" for a plan five days
-    // alive. Either is dropped when it has nothing to say: no count on an empty/finished plan,
-    // no age on a plan that predates createdAt. So a pill reads "3x · 5d", "5d", "3x", or blank.
+    // Secondary text carries two facts, "·"-joined: how much of the plan is done as a fraction
+    // "checked/total" ("2/5"), and when the plan was created ("9:35pm", "9:35pm yesterday", or
+    // "Jul 3"). Either is dropped when it has nothing to say: no fraction on an empty plan (no
+    // real todos), no creation stamp on a plan that predates createdAt. So a pill reads
+    // "2/5 · Jul 3", "Jul 3", "2/5", or blank.
     const count = document.createElement("span");
     count.className = "pill-text-secondary";
-    const n = uncheckedCount(p);
-    const age = daysAlive(p.createdAt, today);
+    const { done, total } = planFraction(p);
+    const created = formatCreatedAt(p.createdAt);
     const parts: string[] = [];
-    if (n) parts.push(n + "x");
-    if (age) parts.push(age + "d");
+    if (total) parts.push(done + "/" + total);
+    if (created) parts.push(created);
     count.textContent = parts.join(" · ");
 
     el.appendChild(label);
@@ -346,21 +349,23 @@ function renderPlans() {
   planBox.appendChild(frag);
 }
 
-// How many unchecked todos are waiting in a plan. Every unchecked, non-blank node in the
-// plan's trees counts — a todo is a line, per NOMENCLATURE ("3x for 3 todos"). A blank
-// placeholder line (an empty plan seeds one so it can be typed into) is not work.
-function uncheckedCount(p: Plan): number {
-  let n = 0;
+// A plan's completed fraction: how many of its todos are checked (`done`) out of its real todos
+// (`total`). Every non-blank node in the plan's trees is a todo — a line — and counts toward the
+// total; the checked ones count toward done. A blank placeholder line (an empty plan seeds one so
+// it can be typed into) is not work and is left out of both. The pill shows this as "done/total".
+function planFraction(p: Plan): { done: number; total: number } {
+  let done = 0;
+  let total = 0;
   for (const root of childrenOf(nodesById, null)) {
     if ((root.planID ?? null) !== p.id) continue;
     for (const id of subtreeIDs(nodesById, root.id)) {
       const node = nodesById.get(id);
-      if (!node || node.checked) continue;
-      if (isBlankLeaf(node)) continue;
-      n++;
+      if (!node || isBlankLeaf(node)) continue;
+      total++;
+      if (node.checked) done++;
     }
   }
-  return n;
+  return { done, total };
 }
 
 // A plan is complete — every one of its (non-blank) todos is checked — and so ready to be
@@ -455,7 +460,7 @@ function addPlan() {
   const id = crypto.randomUUID();
   const orders = livePlans(plansById).map((p) => p.order);
   const order = (orders.length ? Math.max(...orders) : 0) + 1;
-  commitLocal([{ op: "create-plan", id, name: "", order, archived: false, createdAt: today }]);
+  commitLocal([{ op: "create-plan", id, name: "", order, archived: false, createdAt: Date.now() }]);
   activePlanID = id;
   seedActiveIfEmpty();
   render();
@@ -524,7 +529,7 @@ function migrateLegacyIfNeeded() {
   const roots = childrenOf(nodesById, null);
   if (!roots.length) return;
   const batch: Mutation[] = [
-    { op: "create-plan", id: MIKE_TODO, name: "Mike Todo", order: 1, archived: false, createdAt: today },
+    { op: "create-plan", id: MIKE_TODO, name: "Mike Todo", order: 1, archived: false, createdAt: Date.now() },
   ];
   for (const root of roots) {
     if (fullyChecked(nodesById, root)) continue; // leave retired trees out of any plan
@@ -541,7 +546,7 @@ function ensureAPlan() {
     return;
   }
   const id = crypto.randomUUID();
-  commitLocal([{ op: "create-plan", id, name: "", order: 1, archived: false, createdAt: today }]);
+  commitLocal([{ op: "create-plan", id, name: "", order: 1, archived: false, createdAt: Date.now() }]);
   activePlanID = id;
 }
 
@@ -875,6 +880,7 @@ function onEnter(line: Line, input: HTMLTextAreaElement) {
         checked: false,
         keyboardText: "",
         planID: planIDFor(node.parentID),
+        date: null,
       },
     ]);
     pending = { id: node.id, col: 0 }; // caret stays on current line
@@ -891,6 +897,7 @@ function onEnter(line: Line, input: HTMLTextAreaElement) {
           checked: false,
           keyboardText: "",
           planID: planIDFor(node.id),
+          date: null,
         },
       ]);
     } else {
@@ -906,6 +913,7 @@ function onEnter(line: Line, input: HTMLTextAreaElement) {
           checked: false,
           keyboardText: "",
           planID: planIDFor(node.parentID),
+          date: null,
         },
       ]);
     }
@@ -1021,7 +1029,24 @@ list.addEventListener("focusout", (e) => {
   const t = e.target as HTMLTextAreaElement;
   if (t.tagName !== "TEXTAREA" || !t.dataset.id) return;
   const n = nodesById.get(t.dataset.id);
-  const vis = n ? displayText(n) : "";
+  if (!n) return;
+  // Sink a #date tag on blur: pull the date into the stored field and strip the tag from the text
+  // for good (see Todo.date), so it stops re-appearing — ugly, in the way — every time the line is
+  // focused. Only when a real date tag is actually present (the parse changed the text). This is a
+  // pure persist, deliberately WITHOUT any re-render: the sidebars can't change (the tag was
+  // already display-stripped, and the date was already read via ownDate's fallback, so today and
+  // the fraction show the same thing before and after), and re-rendering on blur would destroy the
+  // element a click is landing on — e.g. blurring this row to click a today-box checkbox.
+  const raw = n.keyboardText || "";
+  const parsed = optparse(raw);
+  if (parsed.getKey["date"] && parsed.visibleDisplayText !== raw) {
+    commitLocal([
+      { op: "edit", id: n.id, keyboardText: parsed.visibleDisplayText, date: parsed.getKey["date"] },
+    ]);
+  }
+  // Show the at-rest text (tags stripped). After a sink the mirror already holds the clean text.
+  const cur = nodesById.get(t.dataset.id);
+  const vis = cur ? displayText(cur) : "";
   if (t.value !== vis) {
     t.value = vis;
     autosize(t);
@@ -1157,6 +1182,7 @@ function seedActiveIfEmpty() {
       checked: false,
       keyboardText: "",
       planID: p.id,
+      date: null,
     },
   ]);
 }

@@ -23,13 +23,19 @@ export function todayLocal(now: Date = new Date()): string {
   return `${now.getFullYear()}-${m}-${day}`;
 }
 
-// A node's OWN date — the one its text carries, if any — as YYYY-MM-DD, or null. Derived
-// from keyboardText by optparse and never stored. The `#` guard skips the parse for the
-// common tag-less line.
+// A node's OWN date as YYYY-MM-DD, or null. A date tag still present in the text WINS: that is a
+// date being typed or re-typed live, before it is sunk on blur (see Todo.date) — and legacy nodes
+// that predate the stored field keep their date this way too. Once the tag is sunk away (or there
+// never was one) the stored date is used. The `#` guard skips the parse for the common tag-less
+// line, which is every sunk node. Because the live tag and the value it sinks to agree, today and
+// the pill read the same before and after a sink — so a sink needs no re-render.
 export function ownDate(node: Todo): string | null {
   const kt = node.keyboardText || "";
-  if (!kt.includes("#")) return null;
-  return optparse(kt).getKey["date"] ?? null;
+  if (kt.includes("#")) {
+    const tagged = optparse(kt).getKey["date"];
+    if (tagged) return tagged;
+  }
+  return node.date ?? null;
 }
 
 // A node's EFFECTIVE date: its own date if it has one, else the nearest dated ancestor's.
@@ -54,19 +60,33 @@ export function planOf(nodes: Map<string, Todo>, node: Todo): string | null {
   return rootOf(nodes, node.id)?.planID ?? null;
 }
 
-// How many days a plan has been alive, counting inclusively from its birthday: created today
-// reads as 1, tomorrow as 2. Both dates are local YYYY-MM-DD; the diff is taken in UTC-midnight
-// terms purely to count calendar days without a DST hour sneaking in. Returns 0 — "don't show an
-// age" — when the plan carries no createdAt (it predates the field) or the string is unparseable.
-export function daysAlive(createdAt: string, today: string): number {
-  if (!createdAt) return 0;
-  const [y1, m1, d1] = createdAt.split("-").map(Number);
-  const [y2, m2, d2] = today.split("-").map(Number);
-  if (!y1 || !m1 || !d1 || !y2 || !m2 || !d2) return 0;
-  const born = Date.UTC(y1, m1 - 1, d1);
-  const now = Date.UTC(y2, m2 - 1, d2);
-  const days = Math.floor((now - born) / 86_400_000);
-  return days >= 0 ? days + 1 : 0;
+const MONTH_ABBR = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+// A local clock time as "9:35pm": 12-hour, no leading zero on the hour, lower-case meridiem.
+function clockTime(d: Date): string {
+  let h = d.getHours();
+  const min = String(d.getMinutes()).padStart(2, "0");
+  const ampm = h < 12 ? "am" : "pm";
+  h = h % 12 || 12;
+  return `${h}:${min}${ampm}`;
+}
+
+// When a plan was created, in words for its pill. createdAt is epoch ms; "" out for 0 (unknown).
+// Same local day → just the time ("9:35pm"). The day before → the time plus "yesterday"
+// ("9:35pm yesterday"). Anything older → the calendar date ("Jul 3"). The comparison is by local
+// calendar day, so "yesterday" means the previous date, not a rolling 24 hours.
+export function formatCreatedAt(createdAt: number, now: Date = new Date()): string {
+  if (!createdAt) return "";
+  const d = new Date(createdAt);
+  const bornDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const dayDiff = Math.round((today.getTime() - bornDay.getTime()) / 86_400_000);
+  if (dayDiff === 0) return clockTime(d);
+  if (dayDiff === 1) return `${clockTime(d)} yesterday`;
+  return `${MONTH_ABBR[d.getMonth()]} ${d.getDate()}`;
 }
 
 // The plans to show in the sidebar: the un-archived ones, in `order`. Ties break on id so

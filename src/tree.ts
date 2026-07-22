@@ -23,10 +23,12 @@ const MUTABLE_FIELDS = [
   "parentID",
   "position",
   "planID",
+  "date",
 ] as const;
 
-// Fields an `edit-plan` mutation is allowed to overwrite on an existing plan.
-const PLAN_MUTABLE_FIELDS = ["name", "order", "archived"] as const;
+// Fields an `edit-plan` mutation is allowed to overwrite on an existing plan. createdAt is
+// normally set once at birth, but is patchable so a wrong birth-time can be corrected.
+const PLAN_MUTABLE_FIELDS = ["name", "order", "archived", "createdAt"] as const;
 
 // What actually arrives over the wire: whatever the client posted. Every field
 // is optional and unverified — this is untrusted JSON, so the code below keeps
@@ -40,8 +42,6 @@ type IncomingMutation = Partial<
 > & {
   op?: unknown;
   id?: unknown;
-  // Set only by create-plan and never edited, so it is deliberately outside PLAN_MUTABLE_FIELDS.
-  createdAt?: unknown;
 };
 
 export class TodoTree {
@@ -164,6 +164,8 @@ export class TodoTree {
           // A child's planID is null and resolved by walking to its root; only a
           // top-level todo carries a real one (see plans.ts).
           planID: mutation.planID ?? null,
+          // The todo's own date, or null; a #date tag is sunk here on blur (see shared-types).
+          date: mutation.date ?? null,
         });
         return;
       }
@@ -187,8 +189,8 @@ export class TodoTree {
           name: mutation.name ?? "",
           order: mutation.order ?? 0,
           archived: mutation.archived ?? false,
-          // Set once at birth; "" for a plan that predates the field (see Plan.createdAt).
-          createdAt: mutation.createdAt ?? "",
+          // Epoch ms; 0 for a plan that predates the field (see Plan.createdAt).
+          createdAt: mutation.createdAt ?? 0,
         });
         return;
       }

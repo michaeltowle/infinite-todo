@@ -15,19 +15,22 @@ async function dragToPlan(page: Page, todoID: string, planID: string) {
     .dragTo(page.locator(`.plan[data-id="${planID}"]`));
 }
 
-// A local calendar day, offsetDays from today, as YYYY-MM-DD — computed the way the client does,
-// so a plan's createdAt can be pinned relative to whatever day the suite runs on.
-function ymd(offsetDays: number): string {
+// Epoch ms for a local datetime `days` before now at the given wall-clock time — lets a spec pin
+// a plan's createdAt relative to whatever moment the suite runs on, so the creation-stamp format
+// (time today / "yesterday" / an older date) can be asserted deterministically.
+function createdDaysAgo(days: number, hours: number, minutes: number): number {
   const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
+  d.setDate(d.getDate() - days);
+  d.setHours(hours, minutes, 0, 0);
+  return d.getTime();
 }
 
-// The plan-box lists every un-archived plan with its name and its unchecked-todo count
-// ("3x"). A plan with no unchecked work shows no count. 2026-07-21
-test('the plan-box lists the plans with their unchecked counts', async ({ page, request }) => {
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// The plan-box lists every un-archived plan with its name and its completed fraction "done/total"
+// — checked todos over all real todos. With nothing checked, Work (2 todos) reads "0/2" and Home
+// (1 todo) "0/1". createdAt is 0 here, so no creation stamp joins it. 2026-07-22
+test('the plan-box lists the plans with their completed fraction', async ({ page, request }) => {
   await layTree(
     request,
     [
@@ -41,8 +44,8 @@ test('the plan-box lists the plans with their unchecked counts', async ({ page, 
 
   await expect(page.locator('.plan')).toHaveCount(2);
   await expect(page.locator('.plan[data-id="p-work"] .pill-text-primary')).toHaveText('Work');
-  await expect(page.locator('.plan[data-id="p-work"] .pill-text-secondary')).toHaveText('2x');
-  await expect(page.locator('.plan[data-id="p-home"] .pill-text-secondary')).toHaveText('1x');
+  await expect(page.locator('.plan[data-id="p-work"] .pill-text-secondary')).toHaveText('0/2');
+  await expect(page.locator('.plan[data-id="p-home"] .pill-text-secondary')).toHaveText('0/1');
 });
 
 // The page lands on the first plan: its name fills the <h1>, its pill is marked active, and
@@ -204,33 +207,68 @@ test('the boot migration sweeps active trees into "Mike Todo"', async ({ page, r
   await expect.poll(async () => (await planById(request, 'mike-todo'))?.name).toBe('Mike Todo');
 });
 
-// ─── Plan age (days alive) ───────────────────────────────────────────────────
+// ─── Completed fraction ──────────────────────────────────────────────────────
 
-// A plan's age rides in its pill's secondary text as "Nd", counted inclusively from its
-// createdAt so a plan born today reads "1d". Joined to the unchecked count with " · ", a
-// four-days-old plan with two open todos reads "2x · 5d". 2026-07-22
-test('a plan pill shows its age in days beside the count', async ({ page, request }) => {
+// The fraction's numerator is the checked count: one of three todos done reads "1/3". A blank
+// seed line is not a todo and is left out of both numerator and denominator. 2026-07-22
+test('the pill fraction counts checked todos over total', async ({ page, request }) => {
   await layTree(
     request,
-    [node('a1', null, 1, false, 'first', 'p-work'), node('a2', null, 2, false, 'second', 'p-work')],
-    [plan('p-work', 'Work', 1, false, ymd(-4))], // born 4 days ago → inclusive age 5
+    [
+      node('a1', null, 1, true, 'done one', 'p-work'),
+      node('a2', null, 2, false, 'todo two', 'p-work'),
+      node('a3', null, 3, false, 'todo three', 'p-work'),
+    ],
+    [plan('p-work', 'Work', 1)], // createdAt 0 → fraction only, no creation stamp
   );
-  await open(page, 2);
+  await open(page, 3);
 
-  await expect(page.locator('.plan[data-id="p-work"] .pill-text-secondary')).toHaveText('2x · 5d');
+  await expect(page.locator('.plan[data-id="p-work"] .pill-text-secondary')).toHaveText('1/3');
 });
 
-// The inclusive count means the day a plan is created it already reads "1d", not "0d". A single
-// open todo makes the count "1x", so the pill reads "1x · 1d". 2026-07-22
-test('a plan created today reads as one day alive', async ({ page, request }) => {
+// ─── Creation stamp (createdAt datetime) ─────────────────────────────────────
+
+// A plan created earlier today shows just the local time ("8:05am"), joined to the fraction.
+// 2026-07-22
+test('a plan created today shows its creation time', async ({ page, request }) => {
   await layTree(
     request,
     [node('a1', null, 1, false, 'first', 'p-work')],
-    [plan('p-work', 'Work', 1, false, ymd(0))],
+    [plan('p-work', 'Work', 1, false, createdDaysAgo(0, 8, 5))],
   );
   await open(page, 1);
 
-  await expect(page.locator('.plan[data-id="p-work"] .pill-text-secondary')).toHaveText('1x · 1d');
+  await expect(page.locator('.plan[data-id="p-work"] .pill-text-secondary')).toHaveText('0/1 · 8:05am');
+});
+
+// A plan created yesterday shows the time tagged "yesterday" — calendar yesterday, not a rolling
+// 24 hours. 2026-07-22
+test('a plan created yesterday shows the time with "yesterday"', async ({ page, request }) => {
+  await layTree(
+    request,
+    [node('a1', null, 1, false, 'first', 'p-work')],
+    [plan('p-work', 'Work', 1, false, createdDaysAgo(1, 21, 35))],
+  );
+  await open(page, 1);
+
+  await expect(page.locator('.plan[data-id="p-work"] .pill-text-secondary')).toHaveText(
+    '0/1 · 9:35pm yesterday',
+  );
+});
+
+// A plan created more than a day ago shows its calendar date in "Jul 3" style, no time. 2026-07-22
+test('an older plan shows its creation date', async ({ page, request }) => {
+  const createdAt = createdDaysAgo(5, 10, 0);
+  const d = new Date(createdAt);
+  const expected = `0/1 · ${MONTH_ABBR[d.getMonth()]} ${d.getDate()}`;
+  await layTree(
+    request,
+    [node('a1', null, 1, false, 'first', 'p-work')],
+    [plan('p-work', 'Work', 1, false, createdAt)],
+  );
+  await open(page, 1);
+
+  await expect(page.locator('.plan[data-id="p-work"] .pill-text-secondary')).toHaveText(expected);
 });
 
 // ─── Enter in the plan title ─────────────────────────────────────────────────
