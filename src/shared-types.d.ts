@@ -27,6 +27,10 @@ interface Plan {
   name: string; // what the plan calls itself: the plan-page <h1> and the pill label
   order: number; // fractional sort key among plans, same scheme as a node's position
   archived: boolean; // true once all its todos are checked; hidden from the plan-box
+  // The local calendar day the plan was born, YYYY-MM-DD. Set once at creation and never
+  // edited (so it is absent from PLAN_MUTABLE_FIELDS) — the pill reads it back as the plan's
+  // age. Plans created before this field existed carry none; the age readout is then omitted.
+  createdAt: string;
 }
 
 // An edit travels as a mutation, never a whole-document rewrite. Two entities take

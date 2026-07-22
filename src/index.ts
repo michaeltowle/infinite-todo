@@ -100,9 +100,14 @@ textarea::placeholder{color:#bcad90}
 .add-plan{cursor:pointer;color:#a98a55;margin-top:4px;transition:background .12s,color .12s}
 .add-plan:hover{background:#f1e7d3;color:#8a5a1e}
 
-/* Today-box: a read-only list of what is due today, gathered across every plan. */
+/* Today-box: what is due today, gathered across every plan. The text is read-only, but each row
+   carries a working checkbox to tick the todo off (which drops it from the box). */
 .today-head{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#a98a55;padding:2px 8px 6px}
-.today-todo{padding:4px 8px;color:#43392a;border-radius:4px;overflow-wrap:anywhere}
+.today-todo{display:flex;align-items:flex-start;gap:8px;padding:4px 8px;color:#43392a;border-radius:4px}
+.today-todo-text{min-width:0;overflow-wrap:anywhere}
+/* The today checkbox reuses .todo-checked's look, but it is a plain control here, not a drag
+   handle — so a pointer cursor, and a smaller top-margin to sit against the 13px today text. */
+.today-todo .todo-checked{cursor:pointer;margin-top:1px}
 .today-empty{padding:4px 8px;color:#bcad90;font-style:italic}
 
 /* Below laptop width the three columns stack: plans, then the plan-page, then today. */

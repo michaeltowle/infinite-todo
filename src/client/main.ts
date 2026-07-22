@@ -19,7 +19,7 @@ import {
   siblingsOf,
   subtreeIDs,
 } from "./tree.ts";
-import { effectiveDate, livePlans, todayLocal } from "./plans.ts";
+import { daysAlive, effectiveDate, livePlans, planOf, todayLocal } from "./plans.ts";
 import { optparse } from "./optparse.ts";
 
 const INDENT = 28;
@@ -188,6 +188,7 @@ function applyLocal(m: Mutation) {
       name: m.name,
       order: m.order,
       archived: m.archived,
+      createdAt: m.createdAt,
     });
   } else if (m.op === "edit-plan") {
     const cur = plansById.get(m.id);
@@ -319,12 +320,18 @@ function renderPlans() {
     label.className = "pill-text-primary";
     label.textContent = p.name || "Untitled";
 
-    // Secondary text is the plan's uncheckedTodoCount — "3x" for three unchecked todos,
-    // nothing at all when the plan is empty or fully checked (see NOMENCLATURE, plans).
+    // Secondary text carries two facts, "·"-joined: the plan's uncheckedTodoCount — "3x" for
+    // three unchecked todos (see NOMENCLATURE, plans) — and its age, "5d" for a plan five days
+    // alive. Either is dropped when it has nothing to say: no count on an empty/finished plan,
+    // no age on a plan that predates createdAt. So a pill reads "3x · 5d", "5d", "3x", or blank.
     const count = document.createElement("span");
     count.className = "pill-text-secondary";
     const n = uncheckedCount(p);
-    count.textContent = n ? n + "x" : "";
+    const age = daysAlive(p.createdAt, today);
+    const parts: string[] = [];
+    if (n) parts.push(n + "x");
+    if (age) parts.push(age + "d");
+    count.textContent = parts.join(" · ");
 
     el.appendChild(label);
     el.appendChild(count);
@@ -417,10 +424,24 @@ function renderToday() {
     frag.appendChild(empty);
   } else {
     for (const n of todos) {
-      const el = document.createElement("div");
-      el.className = "today-todo";
-      el.textContent = displayText(n) || "Todo";
-      frag.appendChild(el);
+      const row = document.createElement("div");
+      row.className = "today-todo";
+
+      // A working checkbox, like a todo-row's — but not a drag handle here (today is a lens, not
+      // a place you rearrange). Today lists only UNCHECKED todos, so it always renders empty;
+      // clicking it checks the todo off and the row leaves the box.
+      const btn = document.createElement("button");
+      btn.className = "todo-checked";
+      btn.dataset.id = n.id;
+      btn.textContent = "";
+
+      const text = document.createElement("span");
+      text.className = "today-todo-text";
+      text.textContent = displayText(n) || "Todo";
+
+      row.appendChild(btn);
+      row.appendChild(text);
+      frag.appendChild(row);
     }
   }
   todayBox.appendChild(frag);
@@ -434,7 +455,7 @@ function addPlan() {
   const id = crypto.randomUUID();
   const orders = livePlans(plansById).map((p) => p.order);
   const order = (orders.length ? Math.max(...orders) : 0) + 1;
-  commitLocal([{ op: "create-plan", id, name: "", order, archived: false }]);
+  commitLocal([{ op: "create-plan", id, name: "", order, archived: false, createdAt: today }]);
   activePlanID = id;
   seedActiveIfEmpty();
   render();
@@ -445,11 +466,17 @@ function addPlan() {
 // plan, making a fresh one if that was the last plan standing.
 function archivePlan(id: string) {
   commitLocal([{ op: "edit-plan", id, archived: true }]);
-  const next = livePlans(plansById).find((p) => p.id !== id);
-  if (next) {
-    activePlanID = next.id;
-  } else {
-    ensureAPlan(); // no plans left — start a blank one
+  // Only move the page if the plan that just died is the one you were looking at. Checking a
+  // plan's last todo off from the today-box archives a plan that may not be the active one —
+  // that must not yank you off the page you are editing. (onToggle only ever archives the
+  // active plan, so its behaviour is unchanged.)
+  if (id === activePlanID) {
+    const next = livePlans(plansById).find((p) => p.id !== id);
+    if (next) {
+      activePlanID = next.id;
+    } else {
+      ensureAPlan(); // no plans left — start a blank one
+    }
   }
   seedActiveIfEmpty();
   render();
@@ -497,7 +524,7 @@ function migrateLegacyIfNeeded() {
   const roots = childrenOf(nodesById, null);
   if (!roots.length) return;
   const batch: Mutation[] = [
-    { op: "create-plan", id: MIKE_TODO, name: "Mike Todo", order: 1, archived: false },
+    { op: "create-plan", id: MIKE_TODO, name: "Mike Todo", order: 1, archived: false, createdAt: today },
   ];
   for (const root of roots) {
     if (fullyChecked(nodesById, root)) continue; // leave retired trees out of any plan
@@ -514,7 +541,7 @@ function ensureAPlan() {
     return;
   }
   const id = crypto.randomUUID();
-  commitLocal([{ op: "create-plan", id, name: "", order: 1, archived: false }]);
+  commitLocal([{ op: "create-plan", id, name: "", order: 1, archived: false, createdAt: today }]);
   activePlanID = id;
 }
 
@@ -583,11 +610,17 @@ planBox.addEventListener("click", (e) => {
 
 // ── Editable plan title (<h1>) ──
 planTitle.addEventListener("input", onPlanRename);
-// Enter commits the name rather than dropping a newline into the heading.
+// Enter commits the name and drops into the plan's first todo — the Notion flow of naming a
+// plan then typing straight into it, rather than dropping a newline into the heading. focusLine
+// blurs the h1 for us, and the name is already parked on its rename debounce so it lands either
+// way. A plan always has at least one line (seedActiveIfEmpty), so currentLines[0] is there;
+// blur is the belt-and-braces fallback if it somehow isn't.
 planTitle.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     e.preventDefault();
-    planTitle.blur();
+    const first = currentLines[0];
+    if (first) focusLine(first.node.id, 0);
+    else planTitle.blur();
   }
 });
 
@@ -798,6 +831,22 @@ function onToggle(btn: HTMLButtonElement) {
     const p = activePlan();
     if (p && planComplete(p)) archivePlan(p.id);
   }
+}
+
+// A checkbox in the today-box checks its todo off. Today lists only UNCHECKED todos, so this is
+// always an uncheck→check: the row leaves the box, its plan's count drops, and if it was the
+// plan's last open box the plan completes and is archived. The todo may live on a plan you are
+// NOT looking at, so completion is judged against ITS plan (planOf), and archivePlan only moves
+// the page if that plan happened to be the active one. A full render() redraws the plan-page,
+// plans, and today together — cheap, and today has no caret to protect.
+function onToggleToday(id: string) {
+  const n = nodesById.get(id);
+  if (!n) return;
+  const planID = planOf(nodesById, n);
+  commitLocal([{ op: "edit", id: id, checked: true }]);
+  const p = planID ? plansById.get(planID) : null;
+  if (p && planComplete(p)) archivePlan(p.id);
+  else render();
 }
 
 // The planID a newly-created node should carry. A new top-level node joins the plan you are
@@ -1043,6 +1092,12 @@ list.addEventListener("dragstart", (e) => {
   if (!btn || !btn.dataset.id) return;
   e.dataTransfer!.setData("text/plain", btn.dataset.id);
   e.dataTransfer!.effectAllowed = "move";
+});
+// A click on a today-box checkbox checks that todo off. Only the checkbox is live — the text is
+// not editable here, keeping today a read-only lens for everything except "mark it done".
+todayBox.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-id]");
+  if (btn && btn.dataset.id) onToggleToday(btn.dataset.id);
 });
 scroll.addEventListener("mousedown", blankFocus);
 

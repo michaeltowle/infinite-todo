@@ -40,6 +40,8 @@ type IncomingMutation = Partial<
 > & {
   op?: unknown;
   id?: unknown;
+  // Set only by create-plan and never edited, so it is deliberately outside PLAN_MUTABLE_FIELDS.
+  createdAt?: unknown;
 };
 
 export class TodoTree {
@@ -185,6 +187,8 @@ export class TodoTree {
           name: mutation.name ?? "",
           order: mutation.order ?? 0,
           archived: mutation.archived ?? false,
+          // Set once at birth; "" for a plan that predates the field (see Plan.createdAt).
+          createdAt: mutation.createdAt ?? "",
         });
         return;
       }

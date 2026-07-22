@@ -54,6 +54,21 @@ export function planOf(nodes: Map<string, Todo>, node: Todo): string | null {
   return rootOf(nodes, node.id)?.planID ?? null;
 }
 
+// How many days a plan has been alive, counting inclusively from its birthday: created today
+// reads as 1, tomorrow as 2. Both dates are local YYYY-MM-DD; the diff is taken in UTC-midnight
+// terms purely to count calendar days without a DST hour sneaking in. Returns 0 — "don't show an
+// age" — when the plan carries no createdAt (it predates the field) or the string is unparseable.
+export function daysAlive(createdAt: string, today: string): number {
+  if (!createdAt) return 0;
+  const [y1, m1, d1] = createdAt.split("-").map(Number);
+  const [y2, m2, d2] = today.split("-").map(Number);
+  if (!y1 || !m1 || !d1 || !y2 || !m2 || !d2) return 0;
+  const born = Date.UTC(y1, m1 - 1, d1);
+  const now = Date.UTC(y2, m2 - 1, d2);
+  const days = Math.floor((now - born) / 86_400_000);
+  return days >= 0 ? days + 1 : 0;
+}
+
 // The plans to show in the sidebar: the un-archived ones, in `order`. Ties break on id so
 // the order is total and stable (the same tie-break cmpNodes uses for positions).
 export function livePlans(plans: Map<string, Plan>): Plan[] {

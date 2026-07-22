@@ -6,13 +6,23 @@
 // claim is about persistence.
 
 import { test, expect, type Page } from '@playwright/test';
-import { layTree, node, plan, open, nodeById, planById, readTree, readPlans } from './helpers.ts';
+import { layTree, node, plan, open, nodeById, planById, readTree, readPlans, cursor } from './helpers.ts';
 
 // Drag a todo by its checkbox (the drag handle) onto a plan pill.
 async function dragToPlan(page: Page, todoID: string, planID: string) {
   await page
     .locator(`button[data-id="${todoID}"]`)
     .dragTo(page.locator(`.plan[data-id="${planID}"]`));
+}
+
+// A local calendar day, offsetDays from today, as YYYY-MM-DD — computed the way the client does,
+// so a plan's createdAt can be pinned relative to whatever day the suite runs on.
+function ymd(offsetDays: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
 }
 
 // The plan-box lists every un-archived plan with its name and its unchecked-todo count
@@ -192,4 +202,52 @@ test('the boot migration sweeps active trees into "Mike Todo"', async ({ page, r
   await expect.poll(async () => (await nodeById(request, 'act'))?.planID).toBe('mike-todo');
   await expect.poll(async () => (await nodeById(request, 'done'))?.planID ?? null).toBeNull();
   await expect.poll(async () => (await planById(request, 'mike-todo'))?.name).toBe('Mike Todo');
+});
+
+// ─── Plan age (days alive) ───────────────────────────────────────────────────
+
+// A plan's age rides in its pill's secondary text as "Nd", counted inclusively from its
+// createdAt so a plan born today reads "1d". Joined to the unchecked count with " · ", a
+// four-days-old plan with two open todos reads "2x · 5d". 2026-07-22
+test('a plan pill shows its age in days beside the count', async ({ page, request }) => {
+  await layTree(
+    request,
+    [node('a1', null, 1, false, 'first', 'p-work'), node('a2', null, 2, false, 'second', 'p-work')],
+    [plan('p-work', 'Work', 1, false, ymd(-4))], // born 4 days ago → inclusive age 5
+  );
+  await open(page, 2);
+
+  await expect(page.locator('.plan[data-id="p-work"] .pill-text-secondary')).toHaveText('2x · 5d');
+});
+
+// The inclusive count means the day a plan is created it already reads "1d", not "0d". A single
+// open todo makes the count "1x", so the pill reads "1x · 1d". 2026-07-22
+test('a plan created today reads as one day alive', async ({ page, request }) => {
+  await layTree(
+    request,
+    [node('a1', null, 1, false, 'first', 'p-work')],
+    [plan('p-work', 'Work', 1, false, ymd(0))],
+  );
+  await open(page, 1);
+
+  await expect(page.locator('.plan[data-id="p-work"] .pill-text-secondary')).toHaveText('1x · 1d');
+});
+
+// ─── Enter in the plan title ─────────────────────────────────────────────────
+
+// Enter in the plan-title <h1> commits the name and drops the caret into the plan's first todo —
+// the Notion flow of naming a plan then typing into it — rather than dropping a newline into the
+// heading. Focus lands on the first row's textarea at column 0. 2026-07-22
+test('Enter in the plan title moves focus to the first todo', async ({ page, request }) => {
+  await layTree(
+    request,
+    [node('a1', null, 1, false, 'first todo', 'p-work'), node('a2', null, 2, false, 'second', 'p-work')],
+    [plan('p-work', 'Work', 1)],
+  );
+  await open(page, 2);
+
+  await page.locator('#plan-page h1').click(); // put focus (and a caret) in the title
+  await page.keyboard.press('Enter');
+
+  expect(await cursor(page)).toMatchObject({ tag: 'TEXTAREA', id: 'a1', start: 0 });
 });

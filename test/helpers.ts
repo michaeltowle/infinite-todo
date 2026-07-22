@@ -15,12 +15,15 @@ export type StoredNode = {
   planID?: string | null;
 };
 
-// The stored fields of a plan. Mirrors Plan in src/shared-types.d.ts.
+// The stored fields of a plan. Mirrors Plan in src/shared-types.d.ts. createdAt is optional here
+// so a spec that does not care about a plan's age can omit it (the DO stores "" and the pill then
+// shows no age); a days-alive spec passes an explicit YYYY-MM-DD.
 export type StoredPlan = {
   id: string;
   name: string;
   order: number;
   archived: boolean;
+  createdAt?: string;
 };
 
 // planID is trailing and optional. layTree() sweeps every ROOT (parentID null) that does not
@@ -40,7 +43,8 @@ export const plan = (
   name: string,
   order: number,
   archived = false,
-): StoredPlan => ({ id, name, order, archived });
+  createdAt = '',
+): StoredPlan => ({ id, name, order, archived, createdAt });
 
 // The plan layTree() seeds when a spec does not supply its own.
 export const TEST_PLAN = 'test-plan';
