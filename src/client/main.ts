@@ -28,6 +28,12 @@ const DEBOUNCE_MS = 400;
 const RETRY_MS = 500;
 const RECONNECT_MS = 1000;
 
+// A coarse pointer is the "no mouse, no hardware keyboard" signal — a touch device with no
+// Tab key. Those get the period-at-line-start outdent gesture (see the beforeinput handler).
+// Deliberately NOT the CSS width breakpoint: a narrow desktop window trips that, but it still
+// has a Tab key and wants a literal period. Read once — the pointer kind doesn't change mid-session.
+const isMobile = window.matchMedia("(pointer: coarse)").matches;
+
 // This tab's identity, for the life of the page. Every write carries it, and the
 // DO uses it to skip this tab when fanning that write out — we already applied it
 // optimistically, and re-applying would cost us a render, and with it the caret.
@@ -1006,6 +1012,24 @@ list.addEventListener("keydown", (e) => {
     if (e.shiftKey) onOutdent(line, t.selectionStart ?? 0);
     else onIndent(line, t.selectionStart ?? 0);
   }
+});
+// Mobile has no Tab key, so a period typed at the very start of a line outdents it — the touch
+// equivalent of Shift+Tab. beforeinput, not keydown: soft keyboards fire unreliable keydowns for
+// character keys (key:"Unidentified", keyCode 229), but beforeinput is cancelable, names the
+// character in e.data, and the caret it reports is still the pre-insertion one. Only swallow the
+// period when there is actually a parent to outdent from; at the root there is nothing to outdent
+// into, so the '.' types normally — otherwise a line could never begin with one.
+list.addEventListener("beforeinput", (e) => {
+  if (!isMobile) return;
+  const ie = e as InputEvent;
+  if (ie.inputType !== "insertText" || ie.data !== ".") return;
+  const t = e.target as HTMLTextAreaElement;
+  if (!(t.dataset && t.dataset.id && t.tagName === "TEXTAREA")) return;
+  if (t.selectionStart !== 0 || t.selectionEnd !== 0) return; // caret at line start, nothing selected
+  const line = lineOf(t.dataset.id);
+  if (!line || line.node.parentID == null) return; // already at root — let the period through
+  e.preventDefault();
+  onOutdent(line, 0);
 });
 list.addEventListener("click", (e) => {
   const t = e.target as HTMLElement;
