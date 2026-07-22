@@ -100,11 +100,30 @@ textarea::placeholder{color:#bcad90}
 .add-plan{cursor:pointer;color:#a98a55;margin-top:4px;transition:background .12s,color .12s}
 .add-plan:hover{background:#f1e7d3;color:#8a5a1e}
 
+/* Priority-box: todos ranked by dragging them here, gathered across every plan (like Today).
+   Dragging a ranked row within the box reorders it (priority-rule-above/below marks the drop
+   line); dragging it out to anywhere else in the page clears its rank — priority-leaving fades
+   the row while the drag currently sits outside the box, as a "this will unrank it" cue. A
+   just-checked row stays, crossed out, through the rest of the day it was finished, same as
+   Today (see priorityTodos). */
+.priority-head{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#a98a55;padding:2px 8px 6px}
+.priority-todo{display:flex;align-items:flex-start;gap:8px;padding:4px 8px;color:#43392a;border-radius:4px}
+.priority-todo-text{min-width:0;overflow-wrap:anywhere}
+.priority-todo[data-checked="1"] .priority-todo-text{text-decoration:line-through;opacity:.5}
+.priority-todo .todo-checked{margin-top:1px}
+.priority-todo.priority-rule-above{box-shadow:inset 0 2px 0 0 #9c7a3c}
+.priority-todo.priority-rule-below{box-shadow:inset 0 -2px 0 0 #9c7a3c}
+.priority-todo.priority-leaving{opacity:.35}
+.priority-empty{padding:4px 8px;color:#bcad90;font-style:italic}
+
 /* Today-box: what is due today, gathered across every plan. The text is read-only, but each row
-   carries a working checkbox to tick the todo off (which drops it from the box). */
+   carries a working checkbox to tick the todo off. A just-checked row stays in the box, crossed
+   out, through the rest of the day it was finished (see todayTodos), rather than leaving right
+   away — data-checked mirrors a plan-page row's strike-through. */
 .today-head{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#a98a55;padding:2px 8px 6px}
 .today-todo{display:flex;align-items:flex-start;gap:8px;padding:4px 8px;color:#43392a;border-radius:4px}
 .today-todo-text{min-width:0;overflow-wrap:anywhere}
+.today-todo[data-checked="1"] .today-todo-text{text-decoration:line-through;opacity:.5}
 /* The today checkbox reuses .todo-checked's look, but it is a plain control here, not a drag
    handle — so a pointer cursor, and a smaller top-margin to sit against the 13px today text. */
 .today-todo .todo-checked{cursor:pointer;margin-top:1px}
@@ -131,6 +150,7 @@ textarea::placeholder{color:#bcad90}
 <div id="todo-container"></div>
 </div>
 <div class="sidebar double-sidebar" id="right-sidebar">
+<div class="sidebar-box pill-container priority-box" id="priority-box"></div>
 <div class="sidebar-box pill-container today-box" id="today-box"></div>
 <div class="sidebar-box pill-container info-box">
 <div class="pill info-pill" id="deployed-timestamp"><span class="pill-text-primary">deployed</span> <span class="pill-text-secondary"></span></div>

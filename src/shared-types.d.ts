@@ -21,6 +21,21 @@ interface Todo {
   // nodes carry null and still have their tag in the text; ownDate falls back to parsing those
   // until they are next edited and sunk.
   date: string | null;
+  // The moment this todo was typed into existence, as epoch milliseconds — set once at
+  // creation, same convention as Plan.createdAt (0 for a legacy row that predates the field).
+  createdAt: number;
+  // The moment this todo was last checked, as epoch milliseconds, or null if it has never
+  // been checked or was unchecked again since. Cleared back to null on uncheck — it tracks
+  // the CURRENT completion, not a history of past ones. Powers the today-box/priority-box
+  // rule that a just-completed todo stays visible (crossed out) through the rest of the day
+  // it was finished, then drops off at the next midnight (see completedToday in plans.ts).
+  completedAt: number | null;
+  // This todo's rank in the priority-box, or null if it isn't ranked. Set by dragging the
+  // todo onto the priority-box (a fractional sort key among ranked todos, same `between()`
+  // scheme as a node's position) and cleared back to null by dragging it back out. Lower
+  // sorts first — rank 1 outranks rank 2. Cross-plan: unlike planID, a todo's own priority
+  // is read directly (no walking to a root) — a subtree does not inherit its ancestor's rank.
+  priority: number | null;
 }
 
 // A plan — the named container a todo lives in, and the editable page you look at it on.

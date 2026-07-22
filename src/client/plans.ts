@@ -60,6 +60,14 @@ export function planOf(nodes: Map<string, Todo>, node: Todo): string | null {
   return rootOf(nodes, node.id)?.planID ?? null;
 }
 
+// A todo was checked off on the same local calendar day as `today` (a todayLocal() string).
+// Powers the today-box/priority-box rule that a just-completed todo stays visible, crossed
+// out, through the rest of the day it was finished — then rolls off at the next midnight,
+// once completedAt's day no longer agrees with `today`.
+export function completedToday(node: Todo, today: string): boolean {
+  return node.completedAt != null && todayLocal(new Date(node.completedAt)) === today;
+}
+
 const MONTH_ABBR = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",

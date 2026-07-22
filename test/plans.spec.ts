@@ -166,6 +166,29 @@ test('checking the last todo archives the plan and moves on', async ({ page, req
   await expect.poll(async () => (await planById(request, 'p-work'))?.archived).toBe(true);
 });
 
+// Dragging a plan's last unchecked todo out to another plan leaves the source plan fully
+// checked, same as ticking its last box — so it archives the same way, and the page moves
+// on since it was the one being viewed. 2026-07-22
+test('dragging out the last unchecked todo archives the drained plan', async ({ page, request }) => {
+  await layTree(
+    request,
+    [
+      node('a1', null, 1, true, 'already done', 'p-work'),
+      node('a2', null, 2, false, 'the last one', 'p-work'),
+      node('b1', null, 1, false, 'home thing', 'p-home'),
+    ],
+    [plan('p-work', 'Work', 1), plan('p-home', 'Home', 2)],
+  );
+  await open(page, 2); // Work: a1, a2
+
+  await dragToPlan(page, 'a2', 'p-home');
+
+  await expect(page.locator('.plan[data-id="p-work"]')).toHaveCount(0);
+  await expect(page.locator('.plan[data-id="p-home"]')).toHaveClass(/plan-active/);
+  await expect.poll(async () => (await planById(request, 'p-work'))?.archived).toBe(true);
+  await expect.poll(async () => (await nodeById(request, 'a2'))?.planID).toBe('p-home');
+});
+
 // A todo created while viewing a plan belongs to that plan, so it stays put instead of
 // vanishing the moment it is made. 2026-07-21
 test('a todo created on a plan-page takes that plan', async ({ page, request }) => {

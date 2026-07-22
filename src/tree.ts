@@ -16,7 +16,8 @@ const ELEMENT_PREFIX = "element:";
 const PLAN_PREFIX = "plan:";
 const REVISION_KEY = "treeRevision";
 
-// Fields an `edit` mutation is allowed to overwrite on an existing node.
+// Fields an `edit` mutation is allowed to overwrite on an existing node. createdAt is
+// deliberately absent — it is set once at birth (like a plan's) and never patched.
 const MUTABLE_FIELDS = [
   "checked",
   "keyboardText",
@@ -24,6 +25,8 @@ const MUTABLE_FIELDS = [
   "position",
   "planID",
   "date",
+  "completedAt",
+  "priority",
 ] as const;
 
 // Fields an `edit-plan` mutation is allowed to overwrite on an existing plan. createdAt is
@@ -166,6 +169,12 @@ export class TodoTree {
           planID: mutation.planID ?? null,
           // The todo's own date, or null; a #date tag is sunk here on blur (see shared-types).
           date: mutation.date ?? null,
+          // Epoch ms; 0 for a legacy row that predates the field (see Todo.createdAt).
+          createdAt: mutation.createdAt ?? 0,
+          // Epoch ms the todo was last checked, or null (see Todo.completedAt).
+          completedAt: mutation.completedAt ?? null,
+          // This todo's priority-box rank, or null if unranked (see Todo.priority).
+          priority: mutation.priority ?? null,
         });
         return;
       }

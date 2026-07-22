@@ -19,7 +19,14 @@ import {
   siblingsOf,
   subtreeIDs,
 } from "./tree.ts";
-import { effectiveDate, formatCreatedAt, livePlans, planOf, todayLocal } from "./plans.ts";
+import {
+  completedToday,
+  effectiveDate,
+  formatCreatedAt,
+  livePlans,
+  planOf,
+  todayLocal,
+} from "./plans.ts";
 import { optparse } from "./optparse.ts";
 
 const INDENT = 28;
@@ -44,6 +51,7 @@ const MUTATIONS_URL = "/scratchpad/mutations?tab=" + tabID;
 const list = document.getElementById("todo-container") as HTMLElement;
 const scroll = document.getElementById("scroll") as HTMLElement;
 const planBox = document.getElementById("plan-box") as HTMLElement;
+const priorityBox = document.getElementById("priority-box") as HTMLElement;
 const todayBox = document.getElementById("today-box") as HTMLElement;
 const planTitle = document.querySelector("#plan-page h1") as HTMLElement;
 
@@ -167,6 +175,9 @@ function applyLocal(m: Mutation) {
       keyboardText: m.keyboardText,
       planID: m.planID,
       date: m.date,
+      createdAt: m.createdAt,
+      completedAt: m.completedAt,
+      priority: m.priority,
     });
   } else if (m.op === "edit") {
     const cur = nodesById.get(m.id);
@@ -174,13 +185,16 @@ function applyLocal(m: Mutation) {
     const next = { ...cur };
     // The mutable fields, patched one by one: a mutation overwrites exactly the
     // fields it carries (the DO's MUTABLE_FIELDS loop, unrolled so the compiler
-    // can check each assignment).
+    // can check each assignment). createdAt is absent on purpose — it is set once at
+    // birth and the DO ignores it on edit, so the mirror does too.
     if (m.checked !== undefined) next.checked = m.checked;
     if (m.keyboardText !== undefined) next.keyboardText = m.keyboardText;
     if (m.parentID !== undefined) next.parentID = m.parentID;
     if (m.position !== undefined) next.position = m.position;
     if (m.planID !== undefined) next.planID = m.planID;
     if (m.date !== undefined) next.date = m.date;
+    if (m.completedAt !== undefined) next.completedAt = m.completedAt;
+    if (m.priority !== undefined) next.priority = m.priority;
     nodesById.set(m.id, next);
   } else if (m.op === "delete") {
     for (const id of subtreeIDs(nodesById, m.id)) nodesById.delete(id);
@@ -261,6 +275,7 @@ function render() {
     autosize(ta);
   }
   renderPlans();
+  renderPriority();
   renderToday();
   applyPending();
 }
@@ -394,18 +409,174 @@ function isBlankLeaf(node: Todo): boolean {
   );
 }
 
+// ── Priority ──
+// Todos ranked by dragging them onto the priority-box, across every plan (like Today) — as
+// long as they still have something to say: unranked-nothing shows, but a ranked todo stays
+// visible whether unchecked or checked off earlier TODAY (see completedToday), rolling off at
+// midnight the same way Today does. Sorted by priority ascending — rank 1 first — ties (should
+// they ever occur) broken on id, same tie-break cmpNodes uses for positions.
+function priorityTodos(): Todo[] {
+  return [...nodesById.values()]
+    .filter((n) => n.priority != null && (!n.checked || completedToday(n, today)))
+    .sort((a, b) => (a.priority! - b.priority!) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+function renderPriority() {
+  priorityBox.textContent = "";
+  const frag = document.createDocumentFragment();
+
+  const head = document.createElement("div");
+  head.className = "priority-head";
+  head.textContent = "Priority";
+  frag.appendChild(head);
+
+  const todos = priorityTodos();
+  if (!todos.length) {
+    const empty = document.createElement("div");
+    empty.className = "priority-empty";
+    empty.textContent = "Nothing ranked";
+    frag.appendChild(empty);
+  } else {
+    for (const n of todos) {
+      const row = document.createElement("div");
+      row.className = "priority-todo";
+      row.dataset.id = n.id; // so a dragover/drop on the box can find the row it's over
+      row.dataset.checked = n.checked ? "1" : "0";
+
+      // A working checkbox, like today-box's (checking off a ranked todo shares the exact same
+      // toggle — onToggleToday isn't Today-specific despite its name) — but ALSO a drag handle
+      // here, unlike today-box's: a ranked row can be picked up to reorder or unrank it.
+      const btn = document.createElement("button");
+      btn.className = n.checked ? "todo-checked checked" : "todo-checked";
+      btn.dataset.id = n.id;
+      btn.textContent = n.checked ? "✓" : "";
+      btn.draggable = true;
+
+      const text = document.createElement("span");
+      text.className = "priority-todo-text";
+      text.textContent = displayText(n) || "Todo";
+
+      row.appendChild(btn);
+      row.appendChild(text);
+      frag.appendChild(row);
+    }
+  }
+  priorityBox.appendChild(frag);
+}
+
+// ── Drag onto the priority-box: rank, reorder, or unrank ──
+// The id currently being dragged, from either the plan-page or the priority-box itself. Set on
+// dragstart (see onDragStart, shared by both containers), cleared on dragend regardless of how
+// the drag ended — dropped, cancelled, Escape. dataTransfer.getData() only reliably returns the
+// dragged id inside the drop event itself (most browsers withhold it during dragover, for
+// security), so the live dragover preview below reads this instead.
+let draggingID: string | null = null;
+
+function onDragStart(e: DragEvent) {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-id]");
+  if (!btn || !btn.dataset.id) return;
+  e.dataTransfer!.setData("text/plain", btn.dataset.id);
+  e.dataTransfer!.effectAllowed = "move";
+  draggingID = btn.dataset.id;
+}
+function onDragEnd() {
+  draggingID = null;
+  clearPriorityDragMarks();
+}
+function clearPriorityDragMarks() {
+  for (const row of priorityBox.querySelectorAll<HTMLElement>(".priority-todo")) {
+    row.classList.remove("priority-rule-above", "priority-rule-below", "priority-leaving");
+  }
+}
+
+// Which ranked todo a drop under the pointer should land BEFORE — null past the last row,
+// meaning "append at the end". `draggedID` is excluded from the reckoning (reordering a row
+// already in the list must not let it block on its own current slot).
+function priorityDropBeforeID(e: DragEvent, draggedID: string): string | null {
+  const row = (e.target as HTMLElement).closest<HTMLElement>(".priority-todo");
+  if (!row || !row.dataset.id || row.dataset.id === draggedID) return null;
+  const rect = row.getBoundingClientRect();
+  const above = e.clientY < rect.top + rect.height / 2;
+  if (above) return row.dataset.id;
+  const ranked = priorityTodos().filter((n) => n.id !== draggedID);
+  const idx = ranked.findIndex((n) => n.id === row.dataset.id);
+  return ranked[idx + 1]?.id ?? null;
+}
+
+// The priority values straddling an insertion point ahead of `beforeID` (or the tail, past
+// everyone, if null) — fed straight to the existing between() to mint the dropped todo's new
+// rank. `draggedID` is excluded so reordering a ranked row doesn't count its own old slot twice.
+function priorityNeighbors(draggedID: string, beforeID: string | null) {
+  const ranked = priorityTodos().filter((n) => n.id !== draggedID);
+  const idx = beforeID ? ranked.findIndex((n) => n.id === beforeID) : ranked.length;
+  const hi = idx >= 0 && idx < ranked.length ? ranked[idx].priority : null;
+  const lo = idx > 0 ? ranked[idx - 1].priority : null;
+  return { lo: lo ?? null, hi: hi ?? null };
+}
+
+priorityBox.addEventListener("dragover", (e) => {
+  e.preventDefault(); // the default is "reject the drop"; this is what permits it
+  e.dataTransfer!.dropEffect = "move";
+  clearPriorityDragMarks();
+  const beforeID = priorityDropBeforeID(e, draggingID ?? "");
+  if (beforeID) {
+    priorityBox
+      .querySelector<HTMLElement>(`.priority-todo[data-id="${beforeID}"]`)
+      ?.classList.add("priority-rule-above");
+  } else {
+    const rows = priorityBox.querySelectorAll<HTMLElement>(".priority-todo");
+    rows[rows.length - 1]?.classList.add("priority-rule-below");
+  }
+});
+priorityBox.addEventListener("drop", (e) => {
+  e.preventDefault();
+  e.stopPropagation(); // outrank the page-wide "dropped outside the box" handler below
+  const id = e.dataTransfer!.getData("text/plain");
+  clearPriorityDragMarks();
+  if (!id) return;
+  const beforeID = priorityDropBeforeID(e, id);
+  const { lo, hi } = priorityNeighbors(id, beforeID);
+  commitLocal([{ op: "edit", id, priority: between(lo, hi) }]);
+  render();
+});
+
+// Dropping a ranked todo anywhere OUTSIDE the priority-box clears its rank — dragging it back
+// out unranks it, symmetric with dragging it in to rank it. Judged against the whole page, not
+// just the plan-page, so dropping a ranked todo on a plan pill both moves its plan (planBox's
+// own drop handler) and unranks it: still "outside the box". priorityBox's own drop above
+// always stopPropagation()s, so a drop that landed inside it never reaches here.
+scroll.addEventListener("dragover", (e) => {
+  if (!draggingID) return;
+  const n = nodesById.get(draggingID);
+  if (!n || n.priority == null) return; // wasn't ranked — nothing to leave, nothing to preview
+  e.preventDefault(); // permit a drop anywhere on the page while carrying a ranked todo
+  const inside = priorityBox.contains(e.target as Node);
+  if (!inside) clearPriorityDragMarks(); // no reorder line makes sense once you're outside the box
+  const row = priorityBox.querySelector<HTMLElement>(`.priority-todo[data-id="${draggingID}"]`);
+  if (row) row.classList.toggle("priority-leaving", !inside);
+});
+scroll.addEventListener("drop", (e) => {
+  if (!draggingID) return;
+  const n = nodesById.get(draggingID);
+  if (!n || n.priority == null) return;
+  commitLocal([{ op: "edit", id: draggingID, priority: null }]);
+  render();
+});
+
 // ── Today ──
-// Every unchecked todo whose effective date (its own, or one inherited from an ancestor)
-// is today, in document order across every plan. This is the read-only right-panel view —
-// you look at what is due, but you plan only on a plan-page.
+// Every todo whose effective date (its own, or one inherited from an ancestor) is today, in
+// document order across every plan — as long as it still has something to say: either it is
+// still unchecked, or it was checked off earlier TODAY and is keeping its place (crossed out)
+// through the rest of the day it was finished. A todo checked off on some earlier day has
+// already rolled over and is left out. This is the read-only right-panel view — you look at
+// what is due, but you plan only on a plan-page.
 function todayTodos(): Todo[] {
   const out: Todo[] = [];
   const kids = childMap(nodesById);
   (function dfs(parentID: string | null) {
     for (const n of kids.get(parentID) || []) {
-      if (!n.checked && !isBlankLeaf(n) && effectiveDate(nodesById, n) === today) {
-        out.push(n);
-      }
+      const due = !isBlankLeaf(n) && effectiveDate(nodesById, n) === today;
+      if (due && (!n.checked || completedToday(n, today))) out.push(n);
       dfs(n.id);
     }
   })(null);
@@ -431,14 +602,16 @@ function renderToday() {
     for (const n of todos) {
       const row = document.createElement("div");
       row.className = "today-todo";
+      row.dataset.checked = n.checked ? "1" : "0";
 
       // A working checkbox, like a todo-row's — but not a drag handle here (today is a lens, not
-      // a place you rearrange). Today lists only UNCHECKED todos, so it always renders empty;
-      // clicking it checks the todo off and the row leaves the box.
+      // a place you rearrange). Clicking it toggles the todo, same as a plan-page checkbox; a
+      // just-checked one stays put (crossed out) until it rolls off at midnight (see
+      // todayTodos), rather than leaving the box immediately.
       const btn = document.createElement("button");
-      btn.className = "todo-checked";
+      btn.className = n.checked ? "todo-checked checked" : "todo-checked";
       btn.dataset.id = n.id;
-      btn.textContent = "";
+      btn.textContent = n.checked ? "✓" : "";
 
       const text = document.createElement("span");
       text.className = "today-todo-text";
@@ -575,10 +748,22 @@ function seededBlankDeletions(planID: string, keepID: string): Mutation[] {
 function movePlan(id: string, planID: string) {
   const node = nodesById.get(id);
   if (!node) return;
+  const sourcePlanID = planOf(nodesById, node);
   commitLocal([
     { op: "edit", id: id, planID: planID },
     ...seededBlankDeletions(planID, id),
   ]);
+  // Moving out a plan's last unchecked todo leaves it fully checked, same as ticking the
+  // last box does — so it archives the same way. Checked before seeding: a fresh blank
+  // seed line doesn't count as real work (isBlankLeaf), so it can't hide a completion, but
+  // there is no reason to drop one into a plan that is about to die anyway.
+  if (sourcePlanID && sourcePlanID !== planID) {
+    const source = plansById.get(sourcePlanID);
+    if (source && !source.archived && planComplete(source)) {
+      archivePlan(source.id); // handles seeding the new active page + render()
+      return;
+    }
+  }
   seedActiveIfEmpty(); // moving the last visible tree out would otherwise leave a dead page
   render();
 }
@@ -821,7 +1006,7 @@ function onToggle(btn: HTMLButtonElement) {
   const n = nodesById.get(id);
   if (!n) return;
   const val = !n.checked;
-  commitLocal([{ op: "edit", id: id, checked: val }]);
+  commitLocal([{ op: "edit", id: id, checked: val, completedAt: val ? Date.now() : null }]);
   // Checked todos stay on the page (struck through), so the row is updated in place rather
   // than removed. The sidebars change, though: the plan's count drops and a checked-today
   // todo leaves the today-box.
@@ -838,19 +1023,21 @@ function onToggle(btn: HTMLButtonElement) {
   }
 }
 
-// A checkbox in the today-box checks its todo off. Today lists only UNCHECKED todos, so this is
-// always an uncheck→check: the row leaves the box, its plan's count drops, and if it was the
-// plan's last open box the plan completes and is archived. The todo may live on a plan you are
-// NOT looking at, so completion is judged against ITS plan (planOf), and archivePlan only moves
-// the page if that plan happened to be the active one. A full render() redraws the plan-page,
-// plans, and today together — cheap, and today has no caret to protect.
+// A checkbox in the today-box OR the priority-box toggles its todo, like a plan-page checkbox —
+// shared by both despite the name, since the two lenses behave identically here. A just-checked
+// one stays in its box (crossed out) rather than leaving right away; see todayTodos/priorityTodos.
+// Checking (not unchecking) may complete the todo's plan, which may not be the one you're
+// viewing, so completion is judged against ITS plan (planOf), and archivePlan only moves the
+// page if that plan happened to be the active one. A full render() redraws everything — cheap,
+// and neither box has a caret to protect.
 function onToggleToday(id: string) {
   const n = nodesById.get(id);
   if (!n) return;
+  const val = !n.checked;
   const planID = planOf(nodesById, n);
-  commitLocal([{ op: "edit", id: id, checked: true }]);
+  commitLocal([{ op: "edit", id: id, checked: val, completedAt: val ? Date.now() : null }]);
   const p = planID ? plansById.get(planID) : null;
-  if (p && planComplete(p)) archivePlan(p.id);
+  if (val && p && planComplete(p)) archivePlan(p.id);
   else render();
 }
 
@@ -881,6 +1068,9 @@ function onEnter(line: Line, input: HTMLTextAreaElement) {
         keyboardText: "",
         planID: planIDFor(node.parentID),
         date: null,
+        createdAt: Date.now(),
+        completedAt: null,
+        priority: null,
       },
     ]);
     pending = { id: node.id, col: 0 }; // caret stays on current line
@@ -898,6 +1088,9 @@ function onEnter(line: Line, input: HTMLTextAreaElement) {
           keyboardText: "",
           planID: planIDFor(node.id),
           date: null,
+          createdAt: Date.now(),
+          completedAt: null,
+          priority: null,
         },
       ]);
     } else {
@@ -914,6 +1107,9 @@ function onEnter(line: Line, input: HTMLTextAreaElement) {
           keyboardText: "",
           planID: planIDFor(node.parentID),
           date: null,
+          createdAt: Date.now(),
+          completedAt: null,
+          priority: null,
         },
       ]);
     }
@@ -933,6 +1129,22 @@ function onBackspaceEmpty(line: Line, input: HTMLTextAreaElement) {
   const prevText = nodesById.get(prev.node.id)?.keyboardText || "";
   pending = { id: prev.node.id, col: prevText.length };
   render();
+  return true;
+}
+
+// An empty line has nothing to delete leftward into, so a caret already at 0 has
+// nowhere native to go. If the line right above (in document order) carries text,
+// ArrowLeft instead jumps the caret there, to its very end — as if the empty line
+// were not in the way. A no-op when there is no previous line, or it is empty too.
+function onArrowLeftEmpty(line: Line, input: HTMLTextAreaElement): boolean {
+  if (input.value !== "") return false;
+  if (input.selectionStart !== 0 || input.selectionEnd !== 0) return false;
+  const i = currentLines.findIndex((l) => l.node.id === line.node.id);
+  if (i <= 0) return false;
+  const prev = currentLines[i - 1];
+  const prevText = nodesById.get(prev.node.id)?.keyboardText || "";
+  if (!prevText) return false;
+  focusLine(prev.node.id, prevText.length);
   return true;
 }
 
@@ -1075,6 +1287,8 @@ list.addEventListener("keydown", (e) => {
     if (onBackspaceEmpty(line, t) || onDeleteTopmostEmpty(line, t)) e.preventDefault();
   } else if (e.key === "Delete" && t.value === "") {
     if (onDeleteTopmostEmpty(line, t)) e.preventDefault();
+  } else if (e.key === "ArrowLeft") {
+    if (onArrowLeftEmpty(line, t)) e.preventDefault();
   } else if (e.key === "ArrowUp") {
     e.preventDefault();
     onArrow("up", line, t);
@@ -1110,20 +1324,23 @@ list.addEventListener("click", (e) => {
   const btn = t.closest ? t.closest<HTMLButtonElement>("button[data-id]") : null;
   if (btn) onToggle(btn);
 });
-// The drag carries only the node id; the plan does the rest. A subtree travels
-// with its root, so there is nothing else to say.
-list.addEventListener("dragstart", (e) => {
-  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-id]");
-  if (!btn || !btn.dataset.id) return;
-  e.dataTransfer!.setData("text/plain", btn.dataset.id);
-  e.dataTransfer!.effectAllowed = "move";
-});
-// A click on a today-box checkbox checks that todo off. Only the checkbox is live — the text is
-// not editable here, keeping today a read-only lens for everything except "mark it done".
+// The drag carries only the node id; the plan (or the priority-box, or nothing) does the rest.
+// A subtree travels with its root, so there is nothing else to say. Shared with priorityBox's
+// own rows below — onDragStart also notes draggingID for the priority drag-affordance.
+list.addEventListener("dragstart", onDragStart);
+// A click on a today-box or priority-box checkbox toggles that todo, same as a plan-page one —
+// onToggleToday isn't Today-specific despite its name. Only the checkbox is live in either box —
+// the text is not editable here, keeping both read-only lenses for everything except "toggle it".
 todayBox.addEventListener("click", (e) => {
   const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-id]");
   if (btn && btn.dataset.id) onToggleToday(btn.dataset.id);
 });
+priorityBox.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-id]");
+  if (btn && btn.dataset.id) onToggleToday(btn.dataset.id);
+});
+priorityBox.addEventListener("dragstart", onDragStart);
+document.addEventListener("dragend", onDragEnd);
 scroll.addEventListener("mousedown", blankFocus);
 
 // ── Last deployment timestamp: fills the info-box's two pills, #deployed-timestamp
@@ -1183,6 +1400,9 @@ function seedActiveIfEmpty() {
       keyboardText: "",
       planID: p.id,
       date: null,
+      createdAt: Date.now(),
+      completedAt: null,
+      priority: null,
     },
   ]);
 }

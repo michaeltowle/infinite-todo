@@ -183,6 +183,53 @@ test('consecutive arrows restore the desired column after passing a short line',
   expect(cur.start).toBeGreaterThanOrEqual(10); // before the fix it landed around column 2
 });
 
+// 2026-07-22
+// An empty line has no native "leftward" to go to (the caret is already at column 0
+// with nothing to its left), so ArrowLeft instead treats the previous line as if it
+// were a continuation of the same text and drops the caret at its very end.
+test('ArrowLeft on an empty line jumps to the end of a non-empty previous line', async ({
+  page,
+  request,
+}) => {
+  await layTree(request, [node('a', null, 1, false, 'alpha'), node('e', null, 2, false, '')]);
+  await open(page, 2);
+  await putCaret(page, 'e', 0);
+
+  await page.keyboard.press('ArrowLeft');
+
+  expect(await cursor(page)).toMatchObject({ id: 'a', start: 5, end: 5 }); // end of 'alpha'
+});
+
+// 2026-07-22
+// The previous-line jump is conditioned on that line actually carrying text — an empty
+// line above stays a plain, native ArrowLeft (caret already at 0, nothing moves; focus
+// stays put).
+test('ArrowLeft on an empty line does nothing when the previous line is also empty', async ({
+  page,
+  request,
+}) => {
+  await layTree(request, [node('a', null, 1, false, ''), node('e', null, 2, false, '')]);
+  await open(page, 2);
+  await putCaret(page, 'e', 0);
+
+  await page.keyboard.press('ArrowLeft');
+
+  expect(await cursor(page)).toMatchObject({ id: 'e', start: 0, end: 0 });
+});
+
+// 2026-07-22
+// The topmost line has no previous line at all, so ArrowLeft on an empty topmost line
+// is a no-op rather than throwing on an out-of-range lookup.
+test('ArrowLeft on an empty topmost line is a no-op', async ({ page, request }) => {
+  await layTree(request, [node('solo', null, 1, false, '')]);
+  await open(page, 1);
+  await putCaret(page, 'solo', 0);
+
+  await page.keyboard.press('ArrowLeft');
+
+  expect(await cursor(page)).toMatchObject({ id: 'solo', start: 0, end: 0 });
+});
+
 // ─── Focus placement ─────────────────────────────────────────────────────────
 
 // 2026-07-12

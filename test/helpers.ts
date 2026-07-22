@@ -14,6 +14,9 @@ export type StoredNode = {
   keyboardText: string;
   planID?: string | null;
   date?: string | null;
+  createdAt?: number;
+  completedAt?: number | null;
+  priority?: number | null;
 };
 
 // The stored fields of a plan. Mirrors Plan in src/shared-types.d.ts. createdAt is optional here
@@ -38,7 +41,12 @@ export const node = (
   keyboardText: string,
   planID: string | null = null,
   date: string | null = null,
-): StoredNode => ({ id, parentID, position, checked, keyboardText, planID, date });
+  createdAt = 0,
+  completedAt: number | null = null,
+  priority: number | null = null,
+): StoredNode => ({
+  id, parentID, position, checked, keyboardText, planID, date, createdAt, completedAt, priority,
+});
 
 export const plan = (
   id: string,
