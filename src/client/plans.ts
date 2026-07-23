@@ -83,17 +83,16 @@ function clockTime(d: Date): string {
 }
 
 // When a plan was created, in words for its pill. createdAt is epoch ms; "" out for 0 (unknown).
-// Same local day → just the time ("9:35pm"). The day before → the time plus "yesterday"
-// ("9:35pm yesterday"). Anything older → the calendar date ("Jul 3"). The comparison is by local
-// calendar day, so "yesterday" means the previous date, not a rolling 24 hours.
+// Today OR yesterday → just the time ("9:35pm"): recent enough that the clock time alone is the
+// useful thing, and "yesterday" only added visual noise. Anything older → the calendar date
+// ("Jul 3"). The comparison is by local calendar day, not a rolling 24 hours.
 export function formatCreatedAt(createdAt: number, now: Date = new Date()): string {
   if (!createdAt) return "";
   const d = new Date(createdAt);
   const bornDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const dayDiff = Math.round((today.getTime() - bornDay.getTime()) / 86_400_000);
-  if (dayDiff === 0) return clockTime(d);
-  if (dayDiff === 1) return `${clockTime(d)} yesterday`;
+  if (dayDiff === 0 || dayDiff === 1) return clockTime(d);
   return `${MONTH_ABBR[d.getMonth()]} ${d.getDate()}`;
 }
 

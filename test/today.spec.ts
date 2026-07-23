@@ -7,7 +7,7 @@
 // These specs drive the real page.
 
 import { test, expect } from '@playwright/test';
-import { layTree, node, plan, open, nodeById } from './helpers.ts';
+import { layTree, node, plan, open, nodeById, planById } from './helpers.ts';
 
 // The dates the client is showing, computed the same way it does — local calendar days, not
 // UTC — so a bug in the client's own date maths cannot quietly agree with itself.
@@ -162,4 +162,33 @@ test('checking a today item from another plan does not switch the active page', 
 
   await expect.poll(async () => (await nodeById(request, 'h'))?.checked).toBe(true);
   await expect(page.locator('#plan-page h1')).toHaveText('Work'); // still on Work, not moved
+});
+
+// Checking a plan's last open todo off from the today-box archives that plan (it leaves the
+// sidebar) but the crossed-out row lingers in the box for the rest of the day. Unchecking it
+// from there un-archives the plan — it has open work again and returns to the sidebar — without
+// yanking you off the plan-page you're viewing. 2026-07-23
+test('unchecking a today item un-archives the plan it drained', async ({ page, request }) => {
+  await layTree(
+    request,
+    [
+      node('o', null, 1, false, 'other work', 'p-other'), // active plan, undated
+      node('a', null, 1, false, 'the only task #' + TODAY(), 'p-solo'), // due today, its plan's last
+    ],
+    [plan('p-other', 'Other', 1), plan('p-solo', 'Solo', 2)],
+  );
+  await open(page, 1); // lands on Other (order 1)
+  await expect(page.locator('.plan')).toHaveCount(2);
+
+  // Check it off: p-solo completes and archives, but the row stays in today (crossed out).
+  await page.locator('#today-box button[data-id="a"]').click();
+  await expect(page.locator('.plan[data-id="p-solo"]')).toHaveCount(0);
+  await expect.poll(async () => (await planById(request, 'p-solo'))?.archived).toBe(true);
+  await expect(page.locator('#today-box .today-todo')).toHaveAttribute('data-checked', '1');
+
+  // Uncheck it: p-solo has open work again, so it returns to the sidebar.
+  await page.locator('#today-box button[data-id="a"]').click();
+  await expect(page.locator('.plan[data-id="p-solo"]')).toHaveCount(1);
+  await expect.poll(async () => (await planById(request, 'p-solo'))?.archived).toBe(false);
+  await expect(page.locator('#plan-page h1')).toHaveText('Other'); // page did not switch
 });

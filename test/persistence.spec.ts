@@ -66,22 +66,49 @@ test('backspace on an empty line deletes the node from the store', async ({ page
   await expect.poll(async () => (await readTree(request)).map((n) => n.id)).toEqual(['a']);
 });
 
-// 2026-07-12
-// Enter's new line is a real node in the DO, parented and positioned where the
-// walk expects to find it, unchecked and empty.
-test('Enter persists the new line', async ({ page, request }) => {
+// 2026-07-23
+// Enter makes a new line in the DOM but does NOT persist it while it is empty — an empty todo is
+// never written to the DO (item 4). Typing into it is what mints the `create`; the node then
+// lands parented and positioned where the walk expects, unchecked, carrying its text.
+test('Enter persists the new line only once it has text', async ({ page, request }) => {
   await layTree(request, [node('a', null, 1, false, 'alpha')]);
   await open(page, 1);
 
   await page.locator('textarea[data-id="a"]').click();
   await page.keyboard.press('End'); // caret at 0 would insert ABOVE instead
   await page.keyboard.press('Enter');
+  await page.waitForTimeout(PAST_DEBOUNCE); // even past the debounce, the empty line stays unwritten
+
+  await expect(page.locator('.todo-row')).toHaveCount(2); // on screen
+  expect((await readTree(request)).length).toBe(1); // but not in the store
+
+  await page.keyboard.type('second line');
+  await page.waitForTimeout(PAST_DEBOUNCE);
 
   await expect.poll(async () => (await readTree(request)).length).toBe(2);
-
   const fresh = (await readTree(request)).find((n) => n.id !== 'a')!;
-  expect(fresh).toMatchObject({ parentID: null, checked: false, keyboardText: '' });
+  expect(fresh).toMatchObject({ parentID: null, checked: false, keyboardText: 'second line' });
   expect(fresh.position).toBeGreaterThan(1); // below 'alpha', which sits at 1
+});
+
+// 2026-07-23
+// The flip side of text-triggered creation: a new empty line abandoned before it is typed into
+// costs the DO nothing. Enter then Backspace removes it from the DOM, and since it was never
+// persisted there is no delete to send and nothing new in the store.
+test('an untyped new line is never persisted, even through delete', async ({ page, request }) => {
+  await layTree(request, [node('a', null, 1, false, 'alpha')]);
+  await open(page, 1);
+
+  await page.locator('textarea[data-id="a"]').click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter'); // new empty line below (DOM-only)
+  await expect(page.locator('.todo-row')).toHaveCount(2);
+
+  await page.keyboard.press('Backspace'); // remove the still-empty new line
+  await expect(page.locator('.todo-row')).toHaveCount(1);
+  await page.waitForTimeout(PAST_DEBOUNCE);
+
+  expect((await readTree(request)).map((n) => n.id)).toEqual(['a']);
 });
 
 // 2026-07-12
@@ -118,21 +145,29 @@ test('typed text survives a reload', async ({ page, request }) => {
   await expect(page.locator('textarea[data-id="a"]')).toHaveValue('buy milk');
 });
 
-// 2026-07-12
-// Checking the last open box completes the document, so walk() hides the tree and
-// seedIfEmpty drops in a fresh blank line. That blank line is committed, not merely
-// rendered — otherwise it would evaporate on the next load.
-test('the auto-seeded blank line is persisted', async ({ page, request }) => {
+// 2026-07-23
+// Checking the last open box completes the plan (it archives), and a fresh blank seed line takes
+// the page's place in the DOM. That seed is DOM-only — an empty line is never written to the DO
+// (item 4) — so the store still holds only the original node. Typing into the seed is what finally
+// persists it.
+test('the auto-seeded blank line is not persisted until typed', async ({ page, request }) => {
   await layTree(request, [node('solo', null, 1, false, 'last one')]);
   await open(page, 1);
 
   await page.locator('button[data-id="solo"]').click();
   await expect(page.locator('.todo-row')).toHaveCount(1);
+  await page.waitForTimeout(PAST_DEBOUNCE);
 
-  await expect.poll(async () => (await readTree(request)).length).toBe(2);
+  // The seed shows on screen but has not reached the store.
+  expect((await readTree(request)).map((n) => n.id)).toEqual(['solo']);
+
+  // Typing into it mints the create.
+  await page.locator('#todo-container textarea').first().click();
+  await page.keyboard.type('next thing');
+  await page.waitForTimeout(PAST_DEBOUNCE);
 
   const seeded = (await readTree(request)).find((n) => n.id !== 'solo')!;
-  expect(seeded).toMatchObject({ parentID: null, checked: false, keyboardText: '' });
+  expect(seeded).toMatchObject({ parentID: null, checked: false, keyboardText: 'next thing' });
 });
 
 // ─── What can be lost ────────────────────────────────────────────────────────
@@ -152,10 +187,11 @@ test('text typed but not yet saved survives the page going away', async ({ page,
   await expect.poll(async () => (await nodeById(request, 'a'))?.keyboardText).toBe('buy milk');
 });
 
-// 2026-07-12
-// The same loss, reached the way it actually happens: type a todo, press Enter,
-// walk away. Enter commits the NEW line immediately but leaves the text of the line
-// it fired from on the debounce timer, so the line you just typed is the one at risk.
+// 2026-07-23
+// The same loss, reached the way it actually happens: type a todo, press Enter, walk away. The
+// text of the line Enter fired from is still parked on its debounce timer, so it is the line at
+// risk — flushOnExit must beacon it out. (The new empty line Enter made is DOM-only and empty, so
+// there is nothing of it to lose.)
 test('text typed and followed by Enter survives the page going away', async ({ page, request }) => {
   await layTree(request, [node('a', null, 1, false, '')]);
   await open(page, 1);
@@ -168,11 +204,11 @@ test('text typed and followed by Enter survives the page going away', async ({ p
   await expect.poll(async () => (await nodeById(request, 'a'))?.keyboardText).toBe('buy milk');
 });
 
-// 2026-07-12
-// Mutations must reach the DO in the order they were made. Hold the `create` back
-// on the wire and the debounced `edit` for that same new node overtakes it — the DO
-// gets an edit for a node it has never heard of, hits `if (!existing) return`, and
-// drops it. No error, no retry: the text is gone permanently.
+// 2026-07-23
+// A new node's text now travels WITH its create: typing an unsaved line materializes it into a
+// single `create` (item 4), so the old "edit overtakes create" race is structurally gone. This
+// pins the property that replaced it — hold that create back on the wire for 2s and, once it
+// finally lands, the node is there with its text intact, nothing dropped or reordered.
 test('an edit cannot overtake the create of the node it edits', async ({ page, request }) => {
   await layTree(request, [node('a', null, 1, false, 'alpha')]);
   await open(page, 1);

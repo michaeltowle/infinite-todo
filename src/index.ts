@@ -87,11 +87,16 @@ textarea::placeholder{color:#bcad90}
 .pill{display:flex;flex-wrap:wrap;gap:5px;align-items:baseline;background:transparent;border-radius:4px;padding:5px 8px}
 .pill-text-primary{color:#333}
 .pill-text-secondary{color:#b07a30;white-space:nowrap}
+/* The plan's completed fraction, set apart from the plain-text creation stamp as a small,
+   low-emphasis badge rather than more amber text beside it. */
+.pill-fraction{font-size:11px;color:#8a5a1e;background:rgba(120,90,40,.10);border-radius:6px;padding:1px 6px;white-space:nowrap}
 
 /* Plan pills: click to open a plan's page; drag a todo here to move it into that plan.
    .plan-active marks the plan you are looking at, .plan-over the drag-hover target. */
 .plan{cursor:pointer;justify-content:space-between;transition:background .12s}
-.plan .pill-text-primary{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The name column grows and ellipsizes, so the fraction badge and creation stamp sit together
+   at the right rather than being scattered by space-between. */
+.plan .pill-text-primary{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 .plan:hover{background:#f1e7d3}
 .plan.plan-active{background:#efe3ca;box-shadow:inset 3px 0 0 #9c7a3c}
 .plan.plan-active .pill-text-primary{color:#8a5a1e;font-weight:600}

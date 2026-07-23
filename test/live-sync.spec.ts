@@ -62,9 +62,11 @@ test('text typed on one device shows up on the other', async ({ page, context, r
   await expect(page.locator('textarea[data-id="a"]')).toHaveValue('buy milk');
 });
 
-// 2026-07-12
-// A line created with Enter appears on the other device.
-test('a new line created on one device appears on the other', async ({
+// 2026-07-23
+// A line created with Enter appears on the other device once it holds text — an EMPTY new line
+// is deliberately local-only (item 4) and has nothing to broadcast, so the other device sees it
+// only once its create materializes.
+test('a new line created on one device appears on the other, once it has text', async ({
   page,
   context,
   request,
@@ -77,6 +79,7 @@ test('a new line created on one device appears on the other', async ({
   await other.locator('textarea[data-id="a"]').click();
   await other.keyboard.press('End'); // caret at 0 would insert ABOVE
   await other.keyboard.press('Enter');
+  await other.keyboard.type('bravo'); // materializes the create; nothing to sync before this
 
   await expect(page.locator('.todo-row')).toHaveCount(2);
 });

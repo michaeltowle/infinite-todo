@@ -82,6 +82,7 @@ function loadTree() {
     .then((data) => {
       treeRevision = data.treeRevision || 0;
       nodesById = new Map();
+      unsaved.clear(); // the mirror was just replaced wholesale; any local-only lines are gone with it
       for (const n of data.nodes) nodesById.set(n.id, n);
       plansById = new Map();
       for (const p of data.plans || []) plansById.set(p.id, p);
@@ -97,9 +98,73 @@ function loadTree() {
 const outbox: Mutation[][] = [];
 let draining = false;
 
+// ── Deferred creation: an empty todo is never persisted ──
+// A new line — one made with Enter, or the blank a plan seeds so its page isn't a dead end — is
+// born ONLY in the local mirror; its id is parked here as "unsaved". Nothing about it leaves the
+// tab until it holds real content, at which point materializeBatch mints its `create`, stamping
+// createdAt at that first-content moment rather than at birth. An empty line that is deleted, or a
+// seed never typed into, thus costs zero network and never reaches the DO. (It also never counts
+// toward a plan's fraction — planFraction already skips blank leaves — so the two are consistent.)
+const unsaved = new Set<string>();
+
+// Make a node in the mirror WITHOUT persisting it — the deferred-create counterpart of commitLocal.
+// The whole create is applied locally so the row renders and can take a caret; its id is parked as
+// unsaved, and the create mutation is reconstructed from the mirror if and when it materializes.
+function createLocal(create: CreateMutation) {
+  applyLocal(create);
+  unsaved.add(create.id);
+}
+
 function postMutations(batch: Mutation[]) {
-  outbox.push(batch);
+  const ready = materializeBatch(batch);
+  if (!ready.length) return; // nothing survived — e.g. a stray edit to a still-empty line
+  outbox.push(ready);
   drainOutbox();
+}
+
+// Transform a batch on its way out so no unsaved (empty) node is ever written, and a node that has
+// just become real is written as a `create` rather than an orphan `edit`. For a mutation naming an
+// unsaved id:
+//   • delete → dropped; the node was never persisted, so there is nothing to un-persist.
+//   • edit   → if the node now has real content (text, children, or a check — anything but a blank
+//     leaf) it materializes: a fresh `create` is emitted for it, and for any still-unsaved ancestors
+//     parent-first (so no create references an id the DO hasn't heard of), with createdAt stamped
+//     NOW. The triggering edit is dropped — the create already carries the node's current state from
+//     the mirror. A still-blank node drops the edit and stays unsaved.
+// Every other mutation — saved nodes, all plan ops — passes straight through.
+function materializeBatch(batch: Mutation[]): Mutation[] {
+  const out: Mutation[] = [];
+  for (const m of batch) {
+    if ((m.op === "edit" || m.op === "delete") && unsaved.has(m.id)) {
+      if (m.op === "delete") {
+        unsaved.delete(m.id);
+        continue;
+      }
+      const node = nodesById.get(m.id);
+      if (node && !isBlankLeaf(node)) emitCreateWithAncestors(m.id, out);
+      continue; // real → replaced by the create(s) above; blank → dropped, still unsaved
+    }
+    out.push(m);
+  }
+  return out;
+}
+
+// Push `create`s for the still-unsaved chain from the nearest unsaved ancestor down to `id`, so a
+// child is never created before its parent. Each create is rebuilt from the current mirror node,
+// with createdAt = now (creation time is the first-content moment), and its id cleared from unsaved.
+function emitCreateWithAncestors(id: string, out: Mutation[]) {
+  const chain: string[] = [];
+  let cur: Todo | undefined = nodesById.get(id);
+  while (cur && unsaved.has(cur.id)) {
+    chain.unshift(cur.id);
+    cur = cur.parentID != null ? nodesById.get(cur.parentID) : undefined;
+  }
+  for (const cid of chain) {
+    const node = nodesById.get(cid);
+    if (!node) continue;
+    unsaved.delete(cid);
+    out.push({ op: "create", ...node, createdAt: Date.now() });
+  }
 }
 
 async function drainOutbox() {
@@ -151,7 +216,9 @@ function flushEdits(): Mutation[] {
 // — sendBeacon is, which is the entire reason it exists. Re-sending a mutation the
 // DO already applied is harmless.
 function flushOnExit() {
-  const unsent = ([] as Mutation[]).concat(...outbox).concat(flushEdits());
+  // The outbox already holds materialized (server-ready) batches; only the edits we drain out of
+  // live debounce timers here still need the gate — one may turn an unsaved line into its create.
+  const unsent = ([] as Mutation[]).concat(...outbox).concat(materializeBatch(flushEdits()));
   if (!unsent.length) return;
   navigator.sendBeacon(
     MUTATIONS_URL,
@@ -337,22 +404,27 @@ function renderPlans() {
     label.className = "pill-text-primary";
     label.textContent = p.name || "Untitled";
 
-    // Secondary text carries two facts, "·"-joined: how much of the plan is done as a fraction
-    // "checked/total" ("2/5"), and when the plan was created ("9:35pm", "9:35pm yesterday", or
-    // "Jul 3"). Either is dropped when it has nothing to say: no fraction on an empty plan (no
-    // real todos), no creation stamp on a plan that predates createdAt. So a pill reads
-    // "2/5 · Jul 3", "Jul 3", "2/5", or blank.
-    const count = document.createElement("span");
-    count.className = "pill-text-secondary";
+    // Two secondary facts, deliberately made to look different from each other: how much of the
+    // plan is done as a fraction "checked/total" ("2/5"), shown as a small badge (.pill-fraction),
+    // and when the plan was created ("9:35pm" or "Jul 3"), shown as plain amber text
+    // (.pill-text-secondary). Each is appended only when it has something to say — no badge on an
+    // empty plan (no real todos), no creation stamp on a plan that predates createdAt.
     const { done, total } = planFraction(p);
     const created = formatCreatedAt(p.createdAt);
-    const parts: string[] = [];
-    if (total) parts.push(done + "/" + total);
-    if (created) parts.push(created);
-    count.textContent = parts.join(" · ");
 
     el.appendChild(label);
-    el.appendChild(count);
+    if (total) {
+      const fraction = document.createElement("span");
+      fraction.className = "pill-fraction";
+      fraction.textContent = done + "/" + total;
+      el.appendChild(fraction);
+    }
+    if (created) {
+      const stamp = document.createElement("span");
+      stamp.className = "pill-text-secondary";
+      stamp.textContent = created;
+      el.appendChild(stamp);
+    }
     frag.appendChild(el);
   }
   // The one control in the plan-box: make a new plan and jump to it to name it.
@@ -660,6 +732,16 @@ function archivePlan(id: string) {
   render();
 }
 
+// Bring an archived plan back to life — the inverse of archivePlan. Unchecking a todo whose
+// plan had already been archived (only reachable from the today-box/priority-box, which can
+// still show a todo checked off earlier today after its plan died) means that plan has open
+// work again, so it returns to the sidebar. It does NOT become the active page: you're
+// mid-interaction in a box, not asking to switch there.
+function unarchivePlan(id: string) {
+  commitLocal([{ op: "edit-plan", id, archived: false }]);
+  render();
+}
+
 // Rename the active plan from its <h1>. Debounced like a todo edit, so a burst of typing is
 // one write. The pill mirrors the name live; the h1 is the source of truth while focused.
 function onPlanRename() {
@@ -958,6 +1040,10 @@ function applyRemote(batch: Mutation[]) {
       applyLocal(withoutText);
       continue;
     }
+    // If another tab persisted a line we still hold as unsaved (both seed the same deterministic
+    // blank-seed id, and that tab typed into it first), it is now server-authoritative — drop our
+    // unsaved flag so we don't later mint a duplicate create for it.
+    if (m.op === "create" && unsaved.has(m.id)) unsaved.delete(m.id);
     applyLocal(m);
   }
   repositionCursorAfterRender();
@@ -1037,7 +1123,11 @@ function onToggleToday(id: string) {
   const planID = planOf(nodesById, n);
   commitLocal([{ op: "edit", id: id, checked: val, completedAt: val ? Date.now() : null }]);
   const p = planID ? plansById.get(planID) : null;
+  // Checking may complete the plan (it dies); unchecking a todo whose plan was archived means
+  // that plan has open work again (it returns). Unchecking any todo guarantees the plan is no
+  // longer complete, so no planComplete re-test is needed on that branch.
   if (val && p && planComplete(p)) archivePlan(p.id);
+  else if (!val && p && p.archived) unarchivePlan(p.id);
   else render();
 }
 
@@ -1058,12 +1148,46 @@ function onEnter(line: Line, input: HTMLTextAreaElement) {
     const sibs = siblingsOf(nodesById, node);
     const idx = sibs.findIndex((s) => s.id === node.id);
     const lo = idx > 0 ? sibs[idx - 1].position : null;
-    commitLocal([
-      {
+    createLocal({
+      op: "create",
+      id: nid,
+      parentID: node.parentID != null ? node.parentID : null,
+      position: between(lo, node.position),
+      checked: false,
+      keyboardText: "",
+      planID: planIDFor(node.parentID),
+      date: null,
+      createdAt: Date.now(),
+      completedAt: null,
+      priority: null,
+    });
+    pending = { id: node.id, col: 0 }; // caret stays on current line
+  } else {
+    // New empty line BELOW: first child if the node has children, else next sibling.
+    const kids = childrenOf(nodesById, node.id);
+    if (kids.length) {
+      createLocal({
+        op: "create",
+        id: nid,
+        parentID: node.id,
+        position: between(null, kids[0].position),
+        checked: false,
+        keyboardText: "",
+        planID: planIDFor(node.id),
+        date: null,
+        createdAt: Date.now(),
+        completedAt: null,
+        priority: null,
+      });
+    } else {
+      const sibs = siblingsOf(nodesById, node);
+      const idx = sibs.findIndex((s) => s.id === node.id);
+      const hi = idx + 1 < sibs.length ? sibs[idx + 1].position : null;
+      createLocal({
         op: "create",
         id: nid,
         parentID: node.parentID != null ? node.parentID : null,
-        position: between(lo, node.position),
+        position: between(node.position, hi),
         checked: false,
         keyboardText: "",
         planID: planIDFor(node.parentID),
@@ -1071,47 +1195,7 @@ function onEnter(line: Line, input: HTMLTextAreaElement) {
         createdAt: Date.now(),
         completedAt: null,
         priority: null,
-      },
-    ]);
-    pending = { id: node.id, col: 0 }; // caret stays on current line
-  } else {
-    // New empty line BELOW: first child if the node has children, else next sibling.
-    const kids = childrenOf(nodesById, node.id);
-    if (kids.length) {
-      commitLocal([
-        {
-          op: "create",
-          id: nid,
-          parentID: node.id,
-          position: between(null, kids[0].position),
-          checked: false,
-          keyboardText: "",
-          planID: planIDFor(node.id),
-          date: null,
-          createdAt: Date.now(),
-          completedAt: null,
-          priority: null,
-        },
-      ]);
-    } else {
-      const sibs = siblingsOf(nodesById, node);
-      const idx = sibs.findIndex((s) => s.id === node.id);
-      const hi = idx + 1 < sibs.length ? sibs[idx + 1].position : null;
-      commitLocal([
-        {
-          op: "create",
-          id: nid,
-          parentID: node.parentID != null ? node.parentID : null,
-          position: between(node.position, hi),
-          checked: false,
-          keyboardText: "",
-          planID: planIDFor(node.parentID),
-          date: null,
-          createdAt: Date.now(),
-          completedAt: null,
-          priority: null,
-        },
-      ]);
+      });
     }
     pending = { id: nid, col: 0 };
   }
@@ -1145,6 +1229,23 @@ function onArrowLeftEmpty(line: Line, input: HTMLTextAreaElement): boolean {
   const prevText = nodesById.get(prev.node.id)?.keyboardText || "";
   if (!prevText) return false;
   focusLine(prev.node.id, prevText.length);
+  return true;
+}
+
+// The mirror of onArrowLeftEmpty. A caret at the very END of a line with text has
+// nowhere native to go on ArrowRight. When the next line (in document order) is an empty
+// todo, jump the caret onto it, at column 0 — as if the two lines were one run of text
+// and the empty line were the next word. A no-op when there is no next line, or it
+// carries text of its own (native right-arrow, then down, handles that).
+function onArrowRightToEmpty(line: Line, input: HTMLTextAreaElement): boolean {
+  if (input.value === "") return false;
+  const end = input.value.length;
+  if (input.selectionStart !== end || input.selectionEnd !== end) return false;
+  const i = currentLines.findIndex((l) => l.node.id === line.node.id);
+  if (i < 0 || i + 1 >= currentLines.length) return false;
+  const next = currentLines[i + 1];
+  if ((nodesById.get(next.node.id)?.keyboardText || "") !== "") return false;
+  focusLine(next.node.id, 0);
   return true;
 }
 
@@ -1289,6 +1390,8 @@ list.addEventListener("keydown", (e) => {
     if (onDeleteTopmostEmpty(line, t)) e.preventDefault();
   } else if (e.key === "ArrowLeft") {
     if (onArrowLeftEmpty(line, t)) e.preventDefault();
+  } else if (e.key === "ArrowRight") {
+    if (onArrowRightToEmpty(line, t)) e.preventDefault();
   } else if (e.key === "ArrowUp") {
     e.preventDefault();
     onArrow("up", line, t);
@@ -1385,26 +1488,26 @@ function seedActiveIfEmpty() {
   if (!p) return;
   const roots = childrenOf(nodesById, null);
   const lastPos = roots.length ? roots[roots.length - 1].position : null;
-  commitLocal([
-    {
-      op: "create",
-      // Deliberately NOT a random id, unlike every other create. Seeding is a *derived*
-      // action — "this plan is empty, so drop in a blank line" — and two tabs can reach
-      // that conclusion at the same moment. Random ids would give two blank lines. An id
-      // derived from the revision AND the plan keeps two tabs on the same empty plan
-      // collapsing to one create.
-      id: "blank-seed-" + treeRevision + "-" + p.id,
-      parentID: null,
-      position: between(lastPos, null),
-      checked: false,
-      keyboardText: "",
-      planID: p.id,
-      date: null,
-      createdAt: Date.now(),
-      completedAt: null,
-      priority: null,
-    },
-  ]);
+  // Local-only, like every new empty line (createLocal): a seed the user never types into must
+  // never reach the DO. It materializes into a real create the moment it holds text.
+  createLocal({
+    op: "create",
+    // Deliberately NOT a random id, unlike every other create. Seeding is a *derived*
+    // action — "this plan is empty, so drop in a blank line" — and two tabs can reach
+    // that conclusion at the same moment. Random ids would give two blank lines. An id
+    // derived from the revision AND the plan keeps two tabs on the same empty plan
+    // agreeing on one blank id (and so, once typed into, one create).
+    id: "blank-seed-" + treeRevision + "-" + p.id,
+    parentID: null,
+    position: between(lastPos, null),
+    checked: false,
+    keyboardText: "",
+    planID: p.id,
+    date: null,
+    createdAt: Date.now(),
+    completedAt: null,
+    priority: null,
+  });
 }
 
 // ── Boot ──

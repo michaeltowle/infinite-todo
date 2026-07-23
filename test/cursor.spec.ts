@@ -230,6 +230,52 @@ test('ArrowLeft on an empty topmost line is a no-op', async ({ page, request }) 
   expect(await cursor(page)).toMatchObject({ id: 'solo', start: 0, end: 0 });
 });
 
+// 2026-07-23
+// Mirror of the empty-line ArrowLeft jump. A caret at the very END of a line that carries
+// text has nowhere native to go on ArrowRight; when the next line is an empty todo, drop the
+// caret onto it at column 0, as if the empty line were the continuation of this text.
+test('ArrowRight at the end of a text line jumps into the next empty line', async ({
+  page,
+  request,
+}) => {
+  await layTree(request, [node('a', null, 1, false, 'alpha'), node('e', null, 2, false, '')]);
+  await open(page, 2);
+  await putCaret(page, 'a', 5); // end of 'alpha'
+
+  await page.keyboard.press('ArrowRight');
+
+  expect(await cursor(page)).toMatchObject({ id: 'e', start: 0, end: 0 });
+});
+
+// 2026-07-23
+// The jump is conditioned on the NEXT line being empty. When it carries text, ArrowRight stays
+// native: the caret is already at end-of-value, so nothing moves and focus stays on the line.
+test('ArrowRight at the end of a text line does nothing when the next line has text', async ({
+  page,
+  request,
+}) => {
+  await layTree(request, [node('a', null, 1, false, 'alpha'), node('b', null, 2, false, 'bravo')]);
+  await open(page, 2);
+  await putCaret(page, 'a', 5); // end of 'alpha'
+
+  await page.keyboard.press('ArrowRight');
+
+  expect(await cursor(page)).toMatchObject({ id: 'a', start: 5, end: 5 });
+});
+
+// 2026-07-23
+// The last line has no next line at all, so ArrowRight at its end is a no-op rather than
+// throwing on an out-of-range lookup — the caret stays where it is.
+test('ArrowRight at the end of the last line is a no-op', async ({ page, request }) => {
+  await layTree(request, [node('solo', null, 1, false, 'hello')]);
+  await open(page, 1);
+  await putCaret(page, 'solo', 5); // end of 'hello'
+
+  await page.keyboard.press('ArrowRight');
+
+  expect(await cursor(page)).toMatchObject({ id: 'solo', start: 5, end: 5 });
+});
+
 // ─── Focus placement ─────────────────────────────────────────────────────────
 
 // 2026-07-12
