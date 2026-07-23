@@ -1116,6 +1116,7 @@ function onInput(node: Todo, input: HTMLTextAreaElement) {
   // textarea the caret lives in — the no-re-render-on-type invariant is preserved.
   renderPlans();
   renderToday();
+  renderPriority();
 }
 
 function onToggle(btn: HTMLButtonElement) {
