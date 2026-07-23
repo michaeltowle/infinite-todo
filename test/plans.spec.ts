@@ -191,6 +191,66 @@ test('dragging out the last unchecked todo archives the drained plan', async ({ 
   await expect.poll(async () => (await nodeById(request, 'a2'))?.planID).toBe('p-home');
 });
 
+// ─── Discarding an untouched plan ────────────────────────────────────────────
+
+// An untouched plan — blank title, nothing but the empty todo its page was seeded with — is
+// deleted outright (not archived) the moment you navigate off it to another plan: leaving a plan
+// you never put anything in is how you throw it away, so there need be no delete button. Both the
+// sidebar pill and the Durable Object record are gone, and gone for good — not merely archived.
+// 2026-07-23
+test('navigating off an untouched empty plan deletes it', async ({ page, request }) => {
+  await layTree(
+    request,
+    [node('b1', null, 1, false, 'home thing', 'p-home')],
+    [plan('p-empty', '', 1), plan('p-home', 'Home', 2)], // p-empty: blank name, no todos of its own
+  );
+  await open(page, 1); // lands on p-empty (order 1); its page seeds one blank row
+
+  await page.locator('.plan[data-id="p-home"]').click();
+
+  await expect(page.locator('.plan[data-id="p-empty"]')).toHaveCount(0); // gone from the sidebar
+  await expect(page.locator('.plan[data-id="p-home"]')).toHaveClass(/plan-active/);
+  // Deleted for real, not merely archived, so the record is gone from the DO entirely.
+  await expect.poll(async () => await planById(request, 'p-empty')).toBeUndefined();
+});
+
+// The discard is narrow: it needs BOTH a blank title AND no real todo. An untitled plan that holds
+// a real todo is kept — pill and record — when you leave it, never silently deleted. 2026-07-23
+test('navigating off an untitled plan with a real todo keeps it', async ({ page, request }) => {
+  await layTree(
+    request,
+    [
+      node('a1', null, 1, false, 'a real task', 'p-untitled'),
+      node('b1', null, 1, false, 'home thing', 'p-home'),
+    ],
+    [plan('p-untitled', '', 1), plan('p-home', 'Home', 2)],
+  );
+  await open(page, 1); // lands on p-untitled (order 1): a1
+
+  await page.locator('.plan[data-id="p-home"]').click();
+
+  await expect(page.locator('.plan[data-id="p-untitled"]')).toHaveCount(1); // still there
+  await expect.poll(async () => (await planById(request, 'p-untitled'))?.archived).toBe(false);
+});
+
+// "+ add plan" also leaves the current plan behind, so an untouched one you add away from is
+// discarded the same way: start on a blank-titled empty plan, add a new plan, and the old empty
+// one is gone rather than left cluttering the box. 2026-07-23
+test('adding a plan from an untouched empty one discards the old', async ({ page, request }) => {
+  await layTree(
+    request,
+    [], // no todos at all
+    [plan('p-empty', '', 1)], // the only plan: blank-titled, empty
+  );
+  await open(page, 1); // lands on p-empty; its page seeds one blank row
+
+  await page.locator('.add-plan').click();
+
+  await expect(page.locator('.plan[data-id="p-empty"]')).toHaveCount(0); // the old empty plan is gone
+  await expect(page.locator('.plan')).toHaveCount(1); // just the freshly added one
+  await expect.poll(async () => await planById(request, 'p-empty')).toBeUndefined();
+});
+
 // A todo created while viewing a plan belongs to that plan, so it stays put instead of
 // vanishing the moment it is made. 2026-07-21
 test('a todo created on a plan-page takes that plan', async ({ page, request }) => {

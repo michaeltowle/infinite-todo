@@ -378,7 +378,9 @@ function viewLines(): Line[] {
 // Switch the plan-page. A no-op if you click the plan you are already in.
 function setActivePlan(id: string) {
   if (id === activePlanID) return;
+  const leaving = activePlanID;
   activePlanID = id;
+  disposeIfEmpty(leaving); // an untouched plan you navigate off is discarded, not kept
   seedActiveIfEmpty(); // an empty plan is a dead end — nothing to type into
   render();
 }
@@ -706,7 +708,9 @@ function addPlan() {
   const orders = livePlans(plansById).map((p) => p.order);
   const order = (orders.length ? Math.max(...orders) : 0) + 1;
   commitLocal([{ op: "create-plan", id, name: "", order, archived: false, createdAt: Date.now() }]);
+  const leaving = activePlanID;
   activePlanID = id;
+  disposeIfEmpty(leaving); // adding a plan leaves the current one — if it was untouched, discard it
   seedActiveIfEmpty();
   render();
   focusPlanTitle();
@@ -740,6 +744,34 @@ function archivePlan(id: string) {
 function unarchivePlan(id: string) {
   commitLocal([{ op: "edit-plan", id, archived: false }]);
   render();
+}
+
+// The third way a plan leaves the sidebar, alongside archiving: an UNTOUCHED plan is thrown
+// away — record and all — the instant you navigate off it, so there need be no delete button.
+// Mike's exact case: a blank title and nothing but the one empty todo the page was seeded with
+// (never typed into). Make a plan, think better of it, click another, and it is gone. A named
+// plan, or one holding any real todo, is never touched here — real work is retired by archiving
+// (once every box is checked), never deleted out from under you.
+//
+// The lone blank seed is deleted in the same batch as the plan, so no node is orphaned in a plan
+// that no longer exists (the DO's delete-plan relies on exactly this). The seed is almost always
+// still local-only (unsaved), so in practice only the delete-plan actually reaches the DO.
+function disposeIfEmpty(planID: string) {
+  const p = plansById.get(planID);
+  if (!p || p.archived) return; // already gone, or on its way out via archive
+  if ((p.name || "").trim()) return; // a named plan is kept
+  const deletions: Mutation[] = [];
+  for (const root of childrenOf(nodesById, null)) {
+    if ((root.planID ?? null) !== planID) continue;
+    // Any real (non-blank-leaf) todo anywhere in the plan's trees is work worth keeping — leave
+    // the whole plan alone.
+    for (const id of subtreeIDs(nodesById, root.id)) {
+      const n = nodesById.get(id);
+      if (n && !isBlankLeaf(n)) return;
+    }
+    deletions.push({ op: "delete", id: root.id });
+  }
+  commitLocal([...deletions, { op: "delete-plan", id: planID }]);
 }
 
 // Rename the active plan from its <h1>. Debounced like a todo edit, so a burst of typing is
