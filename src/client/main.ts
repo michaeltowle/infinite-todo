@@ -55,6 +55,7 @@ const planBox = document.getElementById("plan-box") as HTMLElement;
 const priorityBox = document.getElementById("priority-box") as HTMLElement;
 const todayBox = document.getElementById("today-box") as HTMLElement;
 const upcomingBox = document.getElementById("upcoming-box") as HTMLElement;
+const counterBox = document.getElementById("counter-box") as HTMLElement;
 const planTitle = document.querySelector("#plan-page h1") as HTMLElement;
 
 // ── Data layer: client mirror of the DO ──
@@ -347,6 +348,7 @@ function render() {
   renderPriority();
   renderToday();
   renderUpcoming();
+  renderCounter();
   applyPending();
 }
 
@@ -384,6 +386,7 @@ function setActivePlan(id: string) {
   const leaving = activePlanID;
   activePlanID = id;
   disposeIfEmpty(leaving); // an untouched plan you navigate off is discarded, not kept
+  pruneEmptyOnExit(leaving); // one you worked in keeps its real todos but sheds its empty rows
   seedActiveIfEmpty(); // an empty plan is a dead end — nothing to type into
   render();
 }
@@ -738,18 +741,14 @@ function upcomingGroups(): { date: string; todos: Todo[] }[] {
   return [...byDate.keys()].sort().map((date) => ({ date, todos: byDate.get(date)! }));
 }
 
-// Draw the Upcoming Dates box. Each date group is introduced by a hairline rule the date
-// interrupts (the ::before/::after halves of .upcoming-date-rule draw the line), and the rows
-// under it are built exactly as renderToday builds its own — same classes, so they look identical
-// and share Today's click-to-toggle wiring (onToggleToday, below).
+// Draw the Upcoming Dates box. No header — the date rules make its purpose obvious. Each date
+// group is introduced by a hairline rule the date interrupts (the ::before/::after halves of
+// .upcoming-date-rule draw the line), and the rows under it are built exactly as renderToday builds
+// its own — same classes, so they look identical and share Today's click-to-toggle wiring
+// (onToggleToday, below). Empty, it still says so, so the box is never a blank card.
 function renderUpcoming() {
   upcomingBox.textContent = "";
   const frag = document.createDocumentFragment();
-
-  const head = document.createElement("div");
-  head.className = "upcoming-head";
-  head.textContent = "Upcoming Dates";
-  frag.appendChild(head);
 
   const groups = upcomingGroups();
   if (!groups.length) {
@@ -792,6 +791,26 @@ function renderUpcoming() {
   upcomingBox.appendChild(frag);
 }
 
+// ── Counter ──
+// A running tally pinned to the foot of the right panel: how many boxes were checked off today,
+// and how many stand checked all-time. "Today" is completedAt landing on the current local day
+// (completedToday), so unchecking a todo drops it back out of the day's count. "All-time" is every
+// currently-checked todo across every plan, archived plans included — their checked todos live on
+// in the mirror, so the total only ever climbs (short of an un-check).
+function renderCounter() {
+  let doneToday = 0;
+  let allTime = 0;
+  for (const n of nodesById.values()) {
+    if (n.checked) allTime++;
+    if (completedToday(n, today)) doneToday++;
+  }
+  counterBox.textContent = "";
+  const line = document.createElement("div");
+  line.className = "counter-line";
+  line.textContent = `${doneToday} boxes checked today (${allTime} all-time)`;
+  counterBox.appendChild(line);
+}
+
 // ── Plan mutations from the sidebar ──
 // Make a new plan, jump to it, and drop the caret into its <h1> so it can be named
 // straight away (Notion-style). It starts empty and seeds a blank todo so the page below
@@ -804,6 +823,7 @@ function addPlan() {
   const leaving = activePlanID;
   activePlanID = id;
   disposeIfEmpty(leaving); // adding a plan leaves the current one — if it was untouched, discard it
+  pruneEmptyOnExit(leaving); // one you worked in keeps its real todos but sheds its empty rows
   seedActiveIfEmpty();
   render();
   focusPlanTitle();
@@ -865,6 +885,29 @@ function disposeIfEmpty(planID: string) {
     deletions.push({ op: "delete", id: root.id });
   }
   commitLocal([...deletions, { op: "delete-plan", id: planID }]);
+}
+
+// The other side of leaving a plan: one you DID work in (at least one todo carries text) keeps its
+// record, but the empty rows you Entered past and never filled in are swept out, so you return to
+// just the real todos. Skipped when the plan holds no text at all — that is disposeIfEmpty's job
+// (it bins the whole untouched plan), and a plan we prune to nothing would only get re-seeded with
+// a fresh blank line anyway. Runs after disposeIfEmpty, so a plan it already deleted is a no-op here.
+function pruneEmptyOnExit(planID: string) {
+  const p = plansById.get(planID);
+  if (!p || p.archived) return;
+  let hasText = false;
+  const deletions: Mutation[] = [];
+  for (const root of childrenOf(nodesById, null)) {
+    if ((root.planID ?? null) !== planID) continue;
+    for (const id of subtreeIDs(nodesById, root.id)) {
+      const n = nodesById.get(id);
+      if (!n) continue;
+      if ((n.keyboardText || "").trim()) hasText = true;
+      else if (isBlankLeaf(n)) deletions.push({ op: "delete", id });
+    }
+  }
+  if (!hasText || !deletions.length) return;
+  commitLocal(deletions);
 }
 
 // Rename the active plan from its <h1>. Debounced like a todo edit, so a burst of typing is
@@ -1230,6 +1273,7 @@ function onToggle(btn: HTMLButtonElement) {
   renderPlans();
   renderToday();
   renderUpcoming();
+  renderCounter();
   // Checking the last open box completes the plan — it dies and the page moves on.
   if (val) {
     const p = activePlan();
@@ -1338,9 +1382,22 @@ function onBackspaceEmpty(line: Line, input: HTMLTextAreaElement) {
   if (childrenOf(nodesById, line.node.id).length) return false; // don't delete a parent
   const prev = currentLines[i - 1];
   commitLocal([{ op: "delete", id: line.node.id }]);
+  // Deleting that empty row can leave every real todo in the plan checked — the same completion
+  // that ticking the last box triggers — so archive the plan here too, rather than stranding a
+  // finished plan (its fraction at e.g. 6/6) in the sidebar.
+  if (archiveActiveIfComplete()) return true;
   const prevText = nodesById.get(prev.node.id)?.keyboardText || "";
   pending = { id: prev.node.id, col: prevText.length };
   render();
+  return true;
+}
+
+// Archive the active plan if deleting a line just completed it. archivePlan re-seeds the next
+// active page and re-renders, so callers stop (return) rather than placing a now-stale caret.
+function archiveActiveIfComplete(): boolean {
+  const p = activePlan();
+  if (!p || p.archived || !planComplete(p)) return false;
+  archivePlan(p.id);
   return true;
 }
 
@@ -1388,6 +1445,7 @@ function onDeleteTopmostEmpty(line: Line, input: HTMLTextAreaElement) {
   if (childrenOf(nodesById, line.node.id).length) return false; // don't delete a parent
   const next = currentLines[1];
   commitLocal([{ op: "delete", id: line.node.id }]);
+  if (archiveActiveIfComplete()) return true; // deleting it may have completed the plan
   pending = { id: next.node.id, col: 0 };
   render();
   return true;

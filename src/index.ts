@@ -82,8 +82,10 @@ textarea::placeholder{color:#bcad90}
 
 /* Sidebar boxes: cream cards holding pills. */
 .pill-container{box-sizing:border-box;padding:12px;background:#faf5ea;border:1px solid rgba(120,90,40,.11);border-radius:8px;display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:1.5;color:#333}
-/* The deploy stamp sinks to the foot of the right panel. */
-.info-box{margin-top:auto;font-size:11px;gap:6px}
+/* The counter and the deploy stamp sink together to the foot of the right panel: the counter
+   carries the margin-top:auto (a single auto absorbs all the free space), and the info-box sits
+   directly beneath it. */
+.info-box{font-size:11px;gap:6px}
 .pill{display:flex;flex-wrap:wrap;gap:5px;align-items:baseline;background:transparent;border-radius:4px;padding:5px 8px}
 .pill-text-primary{color:#333}
 .pill-text-secondary{color:#b07a30;white-space:nowrap}
@@ -125,7 +127,7 @@ textarea::placeholder{color:#bcad90}
    carries a working checkbox to tick the todo off. A just-checked row stays in the box, crossed
    out, through the rest of the day it was finished (see todayTodos), rather than leaving right
    away — data-checked mirrors a plan-page row's strike-through. */
-.today-head,.upcoming-head{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#a98a55;padding:2px 8px 6px}
+.today-head{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#a98a55;padding:2px 8px 6px}
 .today-todo{display:flex;align-items:flex-start;gap:8px;padding:4px 8px;color:#43392a;border-radius:4px}
 .today-todo-text{min-width:0;overflow-wrap:anywhere}
 .today-todo[data-checked="1"] .today-todo-text{text-decoration:line-through;opacity:.5}
@@ -141,6 +143,11 @@ textarea::placeholder{color:#bcad90}
 .upcoming-date-rule::before,.upcoming-date-rule::after{content:"";flex:1;height:1px;background:rgba(120,90,40,.18)}
 .upcoming-date-label{font-size:11px;color:#a98a55;white-space:nowrap;letter-spacing:.03em}
 
+/* Counter-box: a running "n checked today (m all-time)" tally. margin-top:auto pins it, and the
+   deploy stamp beneath it, to the foot of the right panel. */
+.counter-box{margin-top:auto;font-size:12px;color:#8a6f47}
+.counter-line{padding:2px 8px}
+
 /* Below laptop width the three columns stack: plans, then the plan-page, then today. */
 @media (max-width:1000px){
   .scroll{flex-direction:column;align-items:center}
@@ -148,7 +155,7 @@ textarea::placeholder{color:#bcad90}
   #left-sidebar{order:1}
   #plan-page{order:2;width:100%;padding:40px 24px 80px}
   #right-sidebar{order:3}
-  .info-box{margin-top:0}
+  .counter-box{margin-top:0}
 }
 </style>
 </head>
@@ -165,6 +172,7 @@ textarea::placeholder{color:#bcad90}
 <div class="sidebar double-sidebar" id="right-sidebar">
 <div class="sidebar-box pill-container priority-box" id="priority-box"></div>
 <div class="sidebar-box pill-container today-box" id="today-box"></div>
+<div class="sidebar-box pill-container counter-box" id="counter-box"></div>
 <div class="sidebar-box pill-container info-box">
 <div class="pill info-pill" id="deployed-timestamp"><span class="pill-text-primary">deployed</span> <span class="pill-text-secondary"></span></div>
 <div class="pill info-pill" id="on-branch-branchname"><span class="pill-text-primary">from branch</span> <span class="pill-text-secondary"></span></div>
