@@ -23,6 +23,7 @@ import {
   completedToday,
   effectiveDate,
   formatCreatedAt,
+  formatUpcomingDate,
   livePlans,
   planOf,
   todayLocal,
@@ -53,6 +54,7 @@ const scroll = document.getElementById("scroll") as HTMLElement;
 const planBox = document.getElementById("plan-box") as HTMLElement;
 const priorityBox = document.getElementById("priority-box") as HTMLElement;
 const todayBox = document.getElementById("today-box") as HTMLElement;
+const upcomingBox = document.getElementById("upcoming-box") as HTMLElement;
 const planTitle = document.querySelector("#plan-page h1") as HTMLElement;
 
 // ── Data layer: client mirror of the DO ──
@@ -344,6 +346,7 @@ function render() {
   renderPlans();
   renderPriority();
   renderToday();
+  renderUpcoming();
   applyPending();
 }
 
@@ -697,6 +700,96 @@ function renderToday() {
     }
   }
   todayBox.appendChild(frag);
+}
+
+// ── Upcoming Dates ──
+// The left-sidebar counterpart of Today: every todo whose effective date is set but is NOT today,
+// gathered across every plan in document order, then grouped by date. "Non-today" is read
+// literally — an overdue (past) date qualifies as much as a future one, and the two sort together
+// chronologically, oldest first, so anything slipped shows at the top. The same visibility rule as
+// Today applies per row: an unchecked todo, or one checked off earlier TODAY (kept crossed out
+// until it rolls off at midnight). Each item carries its {date, node} so the grouping below need
+// not recompute the effective date.
+function upcomingTodos(): { date: string; node: Todo }[] {
+  const out: { date: string; node: Todo }[] = [];
+  const kids = childMap(nodesById);
+  (function dfs(parentID: string | null) {
+    for (const n of kids.get(parentID) || []) {
+      const d = !isBlankLeaf(n) ? effectiveDate(nodesById, n) : null;
+      if (d && d !== today && (!n.checked || completedToday(n, today))) {
+        out.push({ date: d, node: n });
+      }
+      dfs(n.id);
+    }
+  })(null);
+  return out;
+}
+
+// The upcoming todos bucketed by date, one bucket per distinct date, the buckets in chronological
+// order (a YYYY-MM-DD string sort IS chronological). Within a bucket the todos keep the document
+// order upcomingTodos collected them in — the same order Today shows them.
+function upcomingGroups(): { date: string; todos: Todo[] }[] {
+  const byDate = new Map<string, Todo[]>();
+  for (const { date, node } of upcomingTodos()) {
+    const arr = byDate.get(date) || [];
+    arr.push(node);
+    byDate.set(date, arr);
+  }
+  return [...byDate.keys()].sort().map((date) => ({ date, todos: byDate.get(date)! }));
+}
+
+// Draw the Upcoming Dates box. Each date group is introduced by a hairline rule the date
+// interrupts (the ::before/::after halves of .upcoming-date-rule draw the line), and the rows
+// under it are built exactly as renderToday builds its own — same classes, so they look identical
+// and share Today's click-to-toggle wiring (onToggleToday, below).
+function renderUpcoming() {
+  upcomingBox.textContent = "";
+  const frag = document.createDocumentFragment();
+
+  const head = document.createElement("div");
+  head.className = "upcoming-head";
+  head.textContent = "Upcoming Dates";
+  frag.appendChild(head);
+
+  const groups = upcomingGroups();
+  if (!groups.length) {
+    const empty = document.createElement("div");
+    empty.className = "upcoming-empty";
+    empty.textContent = "Nothing upcoming";
+    frag.appendChild(empty);
+  } else {
+    for (const g of groups) {
+      const rule = document.createElement("div");
+      rule.className = "upcoming-date-rule";
+      const label = document.createElement("span");
+      label.className = "upcoming-date-label";
+      label.textContent = formatUpcomingDate(g.date);
+      rule.appendChild(label);
+      frag.appendChild(rule);
+
+      for (const n of g.todos) {
+        // Deliberately the today-* classes: the spec is that these rows look just like Today's, so
+        // they reuse Today's exact styling rather than duplicating it.
+        const row = document.createElement("div");
+        row.className = "today-todo";
+        row.dataset.checked = n.checked ? "1" : "0";
+
+        const btn = document.createElement("button");
+        btn.className = n.checked ? "todo-checked checked" : "todo-checked";
+        btn.dataset.id = n.id;
+        btn.textContent = n.checked ? "✓" : "";
+
+        const text = document.createElement("span");
+        text.className = "today-todo-text";
+        text.textContent = displayText(n) || "Todo";
+
+        row.appendChild(btn);
+        row.appendChild(text);
+        frag.appendChild(row);
+      }
+    }
+  }
+  upcomingBox.appendChild(frag);
 }
 
 // ── Plan mutations from the sidebar ──
@@ -1116,6 +1209,7 @@ function onInput(node: Todo, input: HTMLTextAreaElement) {
   // textarea the caret lives in — the no-re-render-on-type invariant is preserved.
   renderPlans();
   renderToday();
+  renderUpcoming();
   renderPriority();
 }
 
@@ -1135,6 +1229,7 @@ function onToggle(btn: HTMLButtonElement) {
   if (row) row.dataset.checked = val ? "1" : "0";
   renderPlans();
   renderToday();
+  renderUpcoming();
   // Checking the last open box completes the plan — it dies and the page moves on.
   if (val) {
     const p = activePlan();
@@ -1468,6 +1563,12 @@ list.addEventListener("dragstart", onDragStart);
 // onToggleToday isn't Today-specific despite its name. Only the checkbox is live in either box —
 // the text is not editable here, keeping both read-only lenses for everything except "toggle it".
 todayBox.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-id]");
+  if (btn && btn.dataset.id) onToggleToday(btn.dataset.id);
+});
+// The upcoming-box rows reuse Today's rows and their toggle, so its checkboxes drive the same
+// handler — checking one crosses it out in place (it stays until midnight, like Today).
+upcomingBox.addEventListener("click", (e) => {
   const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-id]");
   if (btn && btn.dataset.id) onToggleToday(btn.dataset.id);
 });

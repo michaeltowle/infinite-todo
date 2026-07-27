@@ -125,14 +125,21 @@ textarea::placeholder{color:#bcad90}
    carries a working checkbox to tick the todo off. A just-checked row stays in the box, crossed
    out, through the rest of the day it was finished (see todayTodos), rather than leaving right
    away — data-checked mirrors a plan-page row's strike-through. */
-.today-head{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#a98a55;padding:2px 8px 6px}
+.today-head,.upcoming-head{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#a98a55;padding:2px 8px 6px}
 .today-todo{display:flex;align-items:flex-start;gap:8px;padding:4px 8px;color:#43392a;border-radius:4px}
 .today-todo-text{min-width:0;overflow-wrap:anywhere}
 .today-todo[data-checked="1"] .today-todo-text{text-decoration:line-through;opacity:.5}
 /* The today checkbox reuses .todo-checked's look, but it is a plain control here, not a drag
    handle — so a pointer cursor, and a smaller top-margin to sit against the 13px today text. */
 .today-todo .todo-checked{cursor:pointer;margin-top:1px}
-.today-empty{padding:4px 8px;color:#bcad90;font-style:italic}
+.today-empty,.upcoming-empty{padding:4px 8px;color:#bcad90;font-style:italic}
+
+/* Upcoming-box: todos with a non-today date, grouped by date. The rows reuse the today-* styling
+   verbatim; only the between-groups date rule is new — a hairline the date interrupts, drawn as the
+   two flex halves of ::before/::after with the small date label sitting between them. */
+.upcoming-date-rule{display:flex;align-items:center;gap:8px;padding:8px 8px 4px}
+.upcoming-date-rule::before,.upcoming-date-rule::after{content:"";flex:1;height:1px;background:rgba(120,90,40,.18)}
+.upcoming-date-label{font-size:11px;color:#a98a55;white-space:nowrap;letter-spacing:.03em}
 
 /* Below laptop width the three columns stack: plans, then the plan-page, then today. */
 @media (max-width:1000px){
@@ -149,6 +156,7 @@ textarea::placeholder{color:#bcad90}
 <div class="scroll" id="scroll">
 <div class="sidebar double-sidebar" id="left-sidebar">
 <div class="sidebar-box pill-container plan-box" id="plan-box"></div>
+<div class="sidebar-box pill-container upcoming-box" id="upcoming-box"></div>
 </div>
 <div id="plan-page">
 <h1 contenteditable="true" spellcheck="false"></h1>

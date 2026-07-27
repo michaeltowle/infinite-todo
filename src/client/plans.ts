@@ -73,6 +73,17 @@ const MONTH_ABBR = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
+const WEEKDAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// A calendar date (YYYY-MM-DD) written for the upcoming-box's date rule: weekday then short
+// month, e.g. "Mon, Jul 28". Parsed field-by-field into a LOCAL date — new Date on the bare
+// string reads it as UTC midnight and slips a day west of Greenwich.
+export function formatUpcomingDate(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  return `${WEEKDAY_ABBR[date.getDay()]}, ${MONTH_ABBR[m - 1]} ${d}`;
+}
+
 // A local clock time as "9:35pm": 12-hour, no leading zero on the hour, lower-case meridiem.
 function clockTime(d: Date): string {
   let h = d.getHours();
