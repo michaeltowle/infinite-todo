@@ -47,7 +47,7 @@ const isMobile = window.matchMedia("(pointer: coarse)").matches;
 // optimistically, and re-applying would cost us a render, and with it the caret.
 // Per TAB, not per device: two tabs on one laptop are two strangers.
 const tabID = crypto.randomUUID();
-const MUTATIONS_URL = "/scratchpad/mutations?tab=" + tabID;
+const MUTATIONS_URL = "/mutations?tab=" + tabID;
 
 const list = document.getElementById("todo-container") as HTMLElement;
 const scroll = document.getElementById("scroll") as HTMLElement;
@@ -73,7 +73,7 @@ let planNameTimer: ReturnType<typeof setTimeout> | null = null; // h1 rename deb
 let today = todayLocal();
 
 function loadTree() {
-  return fetch("/scratchpad/tree")
+  return fetch("/tree")
     .then(
       (r) =>
         r.json() as Promise<{
@@ -404,8 +404,12 @@ function renderPlans() {
   const frag = document.createDocumentFragment();
   for (const p of livePlans(plansById)) {
     const el = document.createElement("div");
-    // The active plan carries .plan-active so the sidebar shows which page you are on.
-    el.className = active && p.id === active.id ? "pill plan plan-active" : "pill plan";
+    // The active plan carries .plan-active so the sidebar shows which page you are on, and a
+    // plan with unscheduled work carries .plan-undated so the pill hatches. The two are
+    // independent: the plan you are looking at keeps nagging while it has undated todos.
+    el.className = "pill plan";
+    if (active && p.id === active.id) el.classList.add("plan-active");
+    if (planHasUndated(p)) el.classList.add("plan-undated");
     el.dataset.id = p.id;
 
     const label = document.createElement("span");
@@ -461,6 +465,27 @@ function planFraction(p: Plan): { done: number; total: number } {
     }
   }
   return { done, total };
+}
+
+// Does this plan still hold work nobody has scheduled? True as soon as one of its todos is
+// open (unchecked), real (not a blank placeholder) and carries no effective date. The pill
+// hatches itself while this holds, so an unplanned plan LOOKS unfinished and a fully-dated
+// one looks clean — the nag is the point.
+//
+// effectiveDate, not the node's own date: a dated parent covers its whole subtree, so a plan
+// headed by one dated root is fully scheduled however many children hang off it. Checked
+// todos are excluded — finished work needs no date — as are blank leaves, exactly as in
+// planFraction and planComplete either side of this.
+function planHasUndated(p: Plan): boolean {
+  for (const root of childrenOf(nodesById, null)) {
+    if ((root.planID ?? null) !== p.id) continue;
+    for (const id of subtreeIDs(nodesById, root.id)) {
+      const node = nodesById.get(id);
+      if (!node || node.checked || isBlankLeaf(node)) continue;
+      if (!effectiveDate(nodesById, node)) return true;
+    }
+  }
+  return false;
 }
 
 // A plan is complete — every one of its (non-blank) todos is checked — and so ready to be
@@ -1157,7 +1182,7 @@ let hasConnected = false;
 function connectSocket() {
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
   socket = new WebSocket(
-    scheme + "//" + location.host + "/scratchpad/socket?tab=" + tabID,
+    scheme + "//" + location.host + "/socket?tab=" + tabID,
   );
   socket.addEventListener("open", () => {
     // A *re*connect means we were deaf for a while, so the mirror cannot be trusted:
@@ -1608,6 +1633,63 @@ list.addEventListener("beforeinput", (e) => {
   e.preventDefault();
   onOutdent(line, 0);
 });
+
+// ── Mobile indent: swipe a row to the right ──
+// The other half of the missing Tab key. Mobile could already outdent (the period above) but
+// had no way in; dragging a row rightward is that gesture, and it reads as the thing it does.
+// Desktop is untouched — Tab is right there.
+//
+// Deliberately NOT a drag: HTML5 drag-and-drop doesn't fire on touch at all (which is why the
+// checkbox drag-handle is desktop-only), so this is raw touch events.
+const SWIPE_PX = 40; // far enough that a sloppy tap can't trip it
+const SWIPE_RATIO = 1.5; // and clearly more sideways than up — a scroll must never indent
+const EDGE_PX = 24; // iOS Safari's back-navigation swipe lives in this band; keep out of it
+
+// The gesture in progress: which row, where it started, and whether it has already fired.
+// `done` is what makes one swipe one indent — a long drag past the threshold must not walk
+// the row across the page, any more than holding Tab would.
+let swipe: { id: string; x: number; y: number; done: boolean } | null = null;
+
+list.addEventListener("touchstart", (e) => {
+  if (!isMobile) return;
+  swipe = null;
+  if (e.touches.length !== 1) return; // a pinch or a two-finger scroll is not this gesture
+  const row = (e.target as HTMLElement).closest<HTMLElement>(".todo-row");
+  const ta = row?.querySelector<HTMLTextAreaElement>("textarea[data-id]");
+  if (!ta || !ta.dataset.id) return;
+  const t = e.touches[0];
+  if (t.clientX < EDGE_PX) return; // started in the browser's own back-swipe zone
+  swipe = { id: ta.dataset.id, x: t.clientX, y: t.clientY, done: false };
+  // No preventDefault, here or anywhere below until the swipe is certain: a touch that turns
+  // out to be a tap must still place the caret, and one that turns out to be a scroll must
+  // still scroll.
+}, { passive: true });
+
+list.addEventListener("touchmove", (e) => {
+  if (!swipe || swipe.done || e.touches.length !== 1) return;
+  const t = e.touches[0];
+  const dx = t.clientX - swipe.x;
+  const dy = t.clientY - swipe.y;
+  if (dx < SWIPE_PX || dx < Math.abs(dy) * SWIPE_RATIO) return; // not (yet) a rightward swipe
+  const line = lineOf(swipe.id);
+  swipe.done = true; // fired, whether or not there is anywhere to indent to
+  if (!line) return;
+  e.preventDefault(); // the gesture is ours now — don't also scroll or drag-select through it
+  onIndent(line, currentCol(swipe.id));
+}, { passive: false }); // preventDefault is unavailable on a passive listener
+
+list.addEventListener("touchend", () => { swipe = null; }, { passive: true });
+list.addEventListener("touchcancel", () => { swipe = null; }, { passive: true });
+
+// Where the caret currently sits in `id`'s row, or 0 if that row isn't the focused one —
+// which is the case when a swipe lands on a row without tapping it first. onIndent takes the
+// column so the caret survives its re-render.
+function currentCol(id: string): number {
+  const el = document.activeElement as HTMLTextAreaElement | null;
+  if (el && el.tagName === "TEXTAREA" && el.dataset.id === id) return el.selectionStart ?? 0;
+  return 0;
+}
+
 list.addEventListener("click", (e) => {
   const t = e.target as HTMLElement;
   const btn = t.closest ? t.closest<HTMLButtonElement>("button[data-id]") : null;

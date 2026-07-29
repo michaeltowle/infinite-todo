@@ -30,7 +30,7 @@ export default defineConfig({
   // by hand.
   webServer: {
     command: `node scripts/build-client.mts && npx wrangler dev --port ${PORT} --persist-to .wrangler/test-state`,
-    url: `http://localhost:${PORT}/scratchpad`,
+    url: `http://localhost:${PORT}/`,
     reuseExistingServer: false,
     timeout: 120_000,
   },

@@ -7,7 +7,7 @@
 // stored — the client computes/derives them. A separate `treeRevision` counter is
 // bumped on every write batch.
 //
-// Edits arrive as a batch of `mutation`s (POST /scratchpad/mutations); the DO
+// Edits arrive as a batch of `mutation`s (POST /mutations); the DO
 // applies them and returns the new `treeRevision`. The DO's input gate
 // serializes requests and coalesces the batch's writes into one atomic commit,
 // so no explicit transaction is needed.
@@ -59,13 +59,13 @@ export class TodoTree {
   async fetch(request: Request): Promise<Response> {
     const { pathname } = new URL(request.url);
 
-    if (request.method === "GET" && pathname === "/scratchpad/tree") {
+    if (request.method === "GET" && pathname === "/tree") {
       return this.readTree();
     }
-    if (request.method === "POST" && pathname === "/scratchpad/mutations") {
+    if (request.method === "POST" && pathname === "/mutations") {
       return this.applyMutations(request);
     }
-    if (pathname === "/scratchpad/socket") {
+    if (pathname === "/socket") {
       return this.openSocket(request);
     }
     return new Response("not found", { status: 404 });
@@ -113,7 +113,7 @@ export class TodoTree {
     }
   }
 
-  // GET /scratchpad/tree → { treeRevision, nodes: [...stored nodes], plans: [...stored plans] }.
+  // GET /tree → { treeRevision, nodes: [...stored nodes], plans: [...stored plans] }.
   async readTree(): Promise<Response> {
     const nodes = [...(await this.allNodes()).values()];
     const plans = [...(await this.allPlans()).values()];
@@ -121,7 +121,7 @@ export class TodoTree {
     return Response.json({ treeRevision, nodes, plans });
   }
 
-  // POST /scratchpad/mutations?tab=<tabID> → apply a batch atomically, fan it out to
+  // POST /mutations?tab=<tabID> → apply a batch atomically, fan it out to
   // the other tabs, return { treeRevision }.
   //
   // `tab` rides in the query string rather than a header because the client's

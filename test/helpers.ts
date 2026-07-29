@@ -77,7 +77,7 @@ export async function layTree(
     ...existing.plans.map((p) => ({ op: 'delete-plan', id: p.id })),
   ];
   if (dels.length) {
-    await request.post('/scratchpad/mutations', { data: dels });
+    await request.post('/mutations', { data: dels });
   }
 
   const planList = plans ?? [plan(TEST_PLAN, 'Test Plan', 1)];
@@ -91,12 +91,12 @@ export async function layTree(
     })),
   ];
   if (creates.length) {
-    await request.post('/scratchpad/mutations', { data: creates });
+    await request.post('/mutations', { data: creates });
   }
 }
 
 export async function open(page: Page, expectedRows: number) {
-  await page.goto('/scratchpad');
+  await page.goto('/');
   await expect(page.locator('.todo-row')).toHaveCount(expectedRows);
 }
 
@@ -105,7 +105,7 @@ export async function open(page: Page, expectedRows: number) {
 // so page.route() interception can't touch it.
 type Tree = { nodes: StoredNode[]; plans: StoredPlan[] };
 async function readAll(request: APIRequestContext): Promise<Tree> {
-  const body: Partial<Tree> = await (await request.get('/scratchpad/tree')).json();
+  const body: Partial<Tree> = await (await request.get('/tree')).json();
   return { nodes: body.nodes ?? [], plans: body.plans ?? [] };
 }
 
@@ -158,6 +158,57 @@ export async function putCaret(page: Page, id: string, col: number) {
       el.setSelectionRange(col, col);
     },
     { id, col },
+  );
+}
+
+// ─── Touch gestures ──────────────────────────────────────────────────────────
+// Playwright's touchscreen API can tap but not swipe, so a swipe is dispatched by hand:
+// touchstart on the row, a few touchmove steps, then touchend. The client's handler reads
+// nothing but touches[0].clientX/clientY and the event target, so synthetic Touch objects
+// carry it faithfully — what this can NOT exercise is the browser's own gesture arbitration
+// (native scrolling, the iOS edge-swipe), which is why the gesture still wants an eyeball on
+// a real device.
+//
+// `dx`/`dy` are the total displacement from the start point; `from` overrides the start
+// coordinates (used to sit the gesture inside the browser's back-swipe edge band).
+export async function swipe(
+  page: Page,
+  id: string,
+  dx: number,
+  dy = 0,
+  from?: { x: number; y: number },
+) {
+  await page.evaluate(
+    ({ id, dx, dy, from }) => {
+      const ta = document.querySelector(`textarea[data-id="${id}"]`) as HTMLTextAreaElement;
+      const box = ta.getBoundingClientRect();
+      const x0 = from ? from.x : box.left + 10;
+      const y0 = from ? from.y : box.top + box.height / 2;
+
+      const at = (x: number, y: number) =>
+        new Touch({ identifier: 1, target: ta, clientX: x, clientY: y });
+      const fire = (type: string, x: number, y: number) => {
+        const touches = type === 'touchend' ? [] : [at(x, y)];
+        ta.dispatchEvent(
+          new TouchEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            touches,
+            targetTouches: touches,
+            changedTouches: [at(x, y)],
+          }),
+        );
+      };
+
+      fire('touchstart', x0, y0);
+      // Several steps, so a gesture that only crosses the threshold part-way through is
+      // recognised at the same point a real finger would cross it.
+      for (const step of [0.34, 0.67, 1]) {
+        fire('touchmove', x0 + dx * step, y0 + dy * step);
+      }
+      fire('touchend', x0 + dx, y0 + dy);
+    },
+    { id, dx, dy, from },
   );
 }
 

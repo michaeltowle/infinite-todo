@@ -1,9 +1,12 @@
 // x.michaeltowle.io — the scratchpad Worker.
 //
-// Only /scratchpad and its API resolve; every other path is a real 404 (no
+// Only the root and its API resolve; every other path is a real 404 (no
 // catch-all shell). API requests are forwarded to the one TodoTree Durable
-// Object, which owns all state. GET /scratchpad serves the editor page — the
+// Object, which owns all state. GET / serves the editor page — the
 // client is serialized into the page via toString().
+//
+// The app used to live under /scratchpad; the bare hostname is the whole address
+// now, and the old path survives only as the redirect below.
 
 export { TodoTree } from './tree.ts';
 
@@ -17,9 +20,9 @@ import iconSvg from './scratchpad-pencil-icon.svg';
 import { clientBundle } from '../generated/client-bundle.ts';
 
 const API_PATHS = new Set([
-  '/scratchpad/tree',
-  '/scratchpad/mutations',
-  '/scratchpad/socket', // WebSocket upgrade; the DO answers it, live-sync's read channel
+  '/tree',
+  '/mutations',
+  '/socket', // WebSocket upgrade; the DO answers it, live-sync's read channel
 ]);
 
 export default {
@@ -30,8 +33,13 @@ export default {
     if (API_PATHS.has(pathname)) {
       return treeStub(env).fetch(request);
     }
-    if (pathname === '/scratchpad') {
+    if (pathname === '/') {
       return page();
+    }
+    // The old address, kept alive only so a bookmark or a URL-bar autocomplete
+    // lands on the page rather than a 404. Nothing links here.
+    if (pathname === '/scratchpad') {
+      return Response.redirect(new URL('/', url).toString(), 301);
     }
     return new Response('not found', { status: 404 });
   },
@@ -103,6 +111,15 @@ textarea::placeholder{color:#bcad90}
 .plan.plan-active{background:#efe3ca;box-shadow:inset 3px 0 0 #9c7a3c}
 .plan.plan-active .pill-text-primary{color:#8a5a1e;font-weight:600}
 .plan.plan-over{background:#eadcbe;box-shadow:inset 0 0 0 1px #9c7a3c}
+/* A plan still holding undated todos is hatched — it should look UNFINISHED, and a plan
+   whose work is all scheduled gets the clean pill as the reward. A texture, not another
+   shade of the palette, so it can never be misread as hover or selection.
+   Two things about where and how this is written, both deliberate: it sets background-IMAGE
+   only, so the background-colour of whichever state is showing survives underneath and the
+   stripes simply lie on top of it; and it comes AFTER the three state rules above, which use
+   the background shorthand and would otherwise reset background-image to none (equal
+   specificity — last one wins). Net effect: the plan you are looking at keeps nagging. */
+.plan.plan-undated{background-image:repeating-linear-gradient(45deg,rgba(176,122,48,.13) 0 3px,transparent 3px 7px)}
 /* The one control in the plan-box: make a new plan. */
 .add-plan{cursor:pointer;color:#a98a55;margin-top:4px;transition:background .12s,color .12s}
 .add-plan:hover{background:#f1e7d3;color:#8a5a1e}

@@ -25,7 +25,7 @@ import {
 
 // A mutation from "another device": a real POST, tagged with a tabID that belongs to
 // no open tab, so the DO fans it out to every socket.
-const ELSEWHERE = '/scratchpad/mutations?tab=another-device';
+const ELSEWHERE = '/mutations?tab=another-device';
 
 // ─── Changes arrive ──────────────────────────────────────────────────────────
 

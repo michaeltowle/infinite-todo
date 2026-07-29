@@ -60,3 +60,68 @@ test('a tag-less line passes through unchanged', () => {
   expect(getKey['date']).toBeUndefined();
   expect(visibleDisplayText).toBe('just a plain todo');
 });
+
+// ─── Relative date tags ──────────────────────────────────────────────────────
+// The bare-word shapes: '#today', '#tomorrow'/'#tom', and a weekday by name or three-letter
+// abbreviation. Resolved against the injected `now`, so these read as calendar arithmetic
+// rather than as whatever day the suite happens to run on. JAN_2026 is Thursday 15 Jan 2026.
+
+// #today is now's own calendar day, and the tag comes out of the visible text like any
+// other. 2026-07-29
+test('#today resolves to the current day', () => {
+  const { visibleDisplayText, getKey } = optparse('water plants #today', JAN_2026);
+  expect(getKey['date']).toBe('2026-01-15');
+  expect(visibleDisplayText).toBe('water plants');
+});
+
+// Tomorrow, spelled either way — '#tom' is the one Mike actually types. 2026-07-29
+test('#tomorrow and #tom both resolve to the next day', () => {
+  for (const tag of ['#tomorrow', '#tom']) {
+    expect(optparse('bins out ' + tag, JAN_2026).getKey['date']).toBe('2026-01-16');
+  }
+});
+
+// A weekday names the next one AHEAD: from Thursday the 15th, Monday is the 19th. Full name
+// and abbreviation are the same tag, and case is irrelevant. 2026-07-29
+test('a weekday tag resolves to the next occurrence, in any spelling', () => {
+  for (const tag of ['#monday', '#mon', '#Monday', '#MON']) {
+    expect(optparse('gym ' + tag, JAN_2026).getKey['date']).toBe('2026-01-19');
+  }
+});
+
+// The rule is strictly-ahead, so the tag never means today: '#thu' typed ON a Thursday is
+// next Thursday, a week out — '#today' is how you say today. 2026-07-29
+test('a weekday tag typed on that weekday means next week', () => {
+  expect(optparse('standup #thu', JAN_2026).getKey['date']).toBe('2026-01-22');
+});
+
+// The day arithmetic rolls over the end of a month (and so the year): from Sat 31 Jan 2026,
+// tomorrow is 1 Feb, and the next Tuesday is 3 Feb. 2026-07-29
+test('relative tags roll over the end of the month', () => {
+  const JAN_31 = new Date(2026, 0, 31);
+  expect(optparse('a #tom', JAN_31).getKey['date']).toBe('2026-02-01');
+  expect(optparse('a #tue', JAN_31).getKey['date']).toBe('2026-02-03');
+});
+
+// The bare-word branch must not swallow ordinary hashtags. A word that names no day parses to
+// nothing and stays in the visible text, exactly as an impossible numeric date does — this is
+// what keeps '#groceries' a tag and not a silently-eaten date. 2026-07-29
+test('a bare hashtag that is not a day is left in the text', () => {
+  const { visibleDisplayText, getKey } = optparse('grab #groceries', JAN_2026);
+  expect(getKey['date']).toBeUndefined();
+  expect(visibleDisplayText).toBe('grab #groceries');
+});
+
+// A month name on its own is not a date — it has no day — so '#may' stays put rather than
+// being read as a weekday-style relative tag. 2026-07-29
+test('a bare month name is not a relative date', () => {
+  const { visibleDisplayText, getKey } = optparse('plan #may', JAN_2026);
+  expect(getKey['date']).toBeUndefined();
+  expect(visibleDisplayText).toBe('plan #may');
+});
+
+// The new bare-word alternative sits last in the pattern, so the older month-name-plus-day
+// shape still wins where both could apply. 2026-07-29
+test('#aug1 still parses as a month and day, not a bare word', () => {
+  expect(optparse('ship #aug1', JAN_2026).getKey['date']).toBe('2026-08-01');
+});

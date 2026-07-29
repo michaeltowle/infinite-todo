@@ -1,6 +1,6 @@
 // Persistence: what reaches the Durable Object, and whether it can be lost.
 //
-// Every assertion reads the DO through GET /scratchpad/tree — never the DOM. The
+// Every assertion reads the DO through GET /tree — never the DOM. The
 // DOM renders from the client's optimistic mirror (nodesById), so it will happily
 // show you text that never left the browser. That gap is the entire bug class this
 // file exists to catch, and a DOM assertion would be blind to all of it.
@@ -213,7 +213,7 @@ test('an edit cannot overtake the create of the node it edits', async ({ page, r
   await layTree(request, [node('a', null, 1, false, 'alpha')]);
   await open(page, 1);
 
-  await page.route('**/scratchpad/mutations', async (route) => {
+  await page.route('**/mutations', async (route) => {
     const body = route.request().postData() ?? '';
     if (body.includes('"create"')) await new Promise((r) => setTimeout(r, 2000));
     await route.continue();
@@ -241,7 +241,7 @@ test('a mutation whose POST fails is retried, not dropped', async ({ page, reque
   await open(page, 1);
 
   let killedOne = false;
-  await page.route('**/scratchpad/mutations', async (route) => {
+  await page.route('**/mutations', async (route) => {
     if (!killedOne) {
       killedOne = true;
       await route.abort('failed');
