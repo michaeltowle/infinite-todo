@@ -165,14 +165,30 @@ textarea::placeholder{color:#bcad90}
 .counter-box{margin-top:auto;font-size:12px;color:#8a6f47}
 .counter-line{padding:2px 8px}
 
-/* Below laptop width the three columns stack: plans, then the plan-page, then today. */
+/* Below laptop width the three columns stack into one, and the boxes are resequenced for a
+   thumb: what you are working on RIGHT NOW first (priority, then today), then the editor, then
+   what is coming (upcoming dates, then the plan pills), with the tallies last.
+
+   The two sidebars go display:contents so their boxes become flex items of .scroll itself.
+   Without that, the order property could only shuffle boxes WITHIN a sidebar — and this
+   sequence interleaves boxes from both sidebars with the plan-page between them. The wrappers
+   stay in the DOM (blankFocus still finds them with closest('.sidebar')); only their layout
+   box goes.
+
+   Each box therefore has to carry the width the sidebar used to give it. One consequence of
+   flattening: there is now a single gap where there used to be two (24px between columns,
+   16px between boxes inside one). 16px wins — box-against-box is nearly every adjacency here. */
 @media (max-width:1000px){
-  .scroll{flex-direction:column;align-items:center}
-  .sidebar{flex:none;align-self:auto;width:100%;max-width:var(--page-w)}
-  #left-sidebar{order:1}
-  #plan-page{order:2;width:100%;padding:40px 24px 80px}
-  #right-sidebar{order:3}
-  .counter-box{margin-top:0}
+  .scroll{flex-direction:column;align-items:center;gap:16px}
+  .sidebar{display:contents}
+  .sidebar>*{width:100%;max-width:var(--page-w)}
+  #priority-box{order:1}
+  #today-box{order:2}
+  #plan-page{order:3;width:100%;padding:40px 24px 80px}
+  #upcoming-box{order:4}
+  #plan-box{order:5}
+  .counter-box{order:6;margin-top:0}
+  .info-box{order:7}
 }
 </style>
 </head>
